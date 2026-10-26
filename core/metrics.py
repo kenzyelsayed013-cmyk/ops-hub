@@ -82,7 +82,7 @@ def prep_couriers(df):
     d["di_cancels"] = (d["cancel_rate_di"].fillna(0) * d["accepted"]).round(2)
     d["w_ontime"] = d["ontime_rate"] * d["delivered"]
     d["w_avgdel"] = d["avg_delivery_min"] * d["delivered"]
-    d["active"] = (d["delivered"] > 0) | (d["accepted"] > 0) | (d["valid_online_sec"] > 0)
+    d["active"] = d["delivered"] > 0
     d["completed_all"] = (d["shifts_scheduled"] > 0) & (d["shifts_qualified"] == d["shifts_scheduled"])
     return d
 
@@ -154,11 +154,10 @@ def shift_courier_stats(d):
 
 
 def shift_symbols(d):
-    """جدول تفصيلي: ✅ qualified ، ❌ unqualified ، · مش في الجدول"""
+    """Detail table: ✅ qualified · ❌ unqualified · · not scheduled"""
+    from .config import SLOTS
     sym = {"qualified": "✅", "unqualified": "❌", "off": "·"}
     out = d[["date", "courier_id", "name", "valid_hrs", "shifts_scheduled", "shifts_qualified"] + SLOT_COLS].copy()
     for c in SLOT_COLS:
         out[c] = out[c].map(sym).fillna("·")
-    out = out.rename(columns={c: c[6:8] + "-" + c[8:10] if False else c.replace("shift_", "").replace("_", "–")
-                              for c in SLOT_COLS})
-    return out
+    return out.rename(columns=dict(zip(SLOT_COLS, SLOTS)))
