@@ -11,7 +11,11 @@ pd.set_option("styler.render.max_elements", 5_000_000)
 
 CSS = """
 <style>
-#MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDeployButton"], [data-testid="stStatusWidget"] {display:none !important;}
+#MainMenu, footer, [data-testid="stToolbar"], [data-testid="stToolbarActions"], [data-testid="stAppDeployButton"],
+[data-testid="stDeployButton"], [data-testid="stStatusWidget"], [data-testid="stDecoration"],
+[class*="viewerBadge"], [class*="ViewerBadge"], [data-testid="manage-app-button"], .stAppDeployButton,
+a[href*="github.com"][target="_blank"][class*="toolbar"] {display:none !important; visibility:hidden !important;}
+header[data-testid="stHeader"] {background:transparent !important;}
 .block-container {padding-top: 1.2rem; max-width: 1600px;}
 .topbar {background:#14181F; color:#fff; padding:16px 24px; border-radius:8px; margin-bottom:10px; border-bottom:5px solid #FFC400;}
 .topbar .t1 {font-size:1.5rem; font-weight:800; letter-spacing:.02em;}
