@@ -3,6 +3,7 @@
 # المنصات: parser = اسم الـ parser الموجود في parsers.PARSERS (None = لسه مفيش parser)
 PLATFORMS = {
     "Keeta": {"parser": "keeta"},
+    
     "Hunger Station": {"parser": None},   # جاهزة في السيستم، هتتفعل لما نضيف parser لها
 }
 
