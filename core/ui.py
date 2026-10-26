@@ -1,27 +1,45 @@
-"""Shared UI: global filters, header bar, section bars, KPI cards, Excel export, charts."""
+"""Shared UI: filters, status cards, colour-highlighted tables, Excel export. Numbers only, no charts."""
+import html
 import io
 from datetime import timedelta
+import numpy as np
 import pandas as pd
-import plotly.express as px
 import streamlit as st
-from . import db, metrics as M
+from . import db, metrics as M, insights as I
+
+pd.set_option("styler.render.max_elements", 5_000_000)
 
 CSS = """
 <style>
-.block-container {padding-top: 1.6rem; max-width: 1500px;}
-.topbar {background:#14181F; color:#fff; padding:14px 22px; border-radius:6px; margin-bottom:10px;}
-.topbar .t1 {font-size:1.35rem; font-weight:800; letter-spacing:.05em;}
-.topbar .t2 {font-size:.85rem; color:#C9CED6; margin-top:2px;}
-.sec {background:#FFF1BF; color:#14181F; font-weight:800; padding:7px 14px; border-radius:4px;
-      margin:24px 0 10px; letter-spacing:.03em;}
-.sec span {font-weight:500; font-size:.8rem; color:#4B5563; margin-left:10px;}
-.strip {display:flex; gap:8px; margin-bottom:8px;}
-.strip > div {flex:1; background:#F3F4F6; border-radius:4px; padding:5px 10px; font-size:.68rem;
-              font-weight:700; color:#4B5563; letter-spacing:.04em;}
-.strip b {display:block; font-size:.95rem; padding:3px 8px; border-radius:3px; margin-top:3px; color:#14181F; background:#fff;}
-.strip .f b {background:#FFC400;}
-[data-testid="stMetricLabel"] p {font-size:.7rem; font-weight:700; letter-spacing:.03em; text-transform:uppercase; color:#4B5563;}
-[data-testid="stMetricValue"] {font-weight:800; font-size:1.6rem;}
+#MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDeployButton"], [data-testid="stStatusWidget"] {display:none !important;}
+.block-container {padding-top: 1.2rem; max-width: 1600px;}
+.topbar {background:#14181F; color:#fff; padding:16px 24px; border-radius:8px; margin-bottom:10px; border-bottom:5px solid #FFC400;}
+.topbar .t1 {font-size:1.5rem; font-weight:800; letter-spacing:.02em;}
+.topbar .t2 {font-size:.88rem; color:#C9CED6; margin-top:3px;}
+.legend {display:flex; gap:14px; flex-wrap:wrap; font-size:.8rem; font-weight:700; margin:6px 0 4px;}
+.legend span {padding:3px 12px; border-radius:20px;}
+.lg-good {background:#DCFCE7; color:#14532D;} .lg-warn {background:#FEF3C7; color:#78350F;} .lg-bad {background:#FEE2E2; color:#7F1D1D;}
+.sec {background:#FFC400; color:#14181F; font-weight:800; font-size:1.05rem; padding:9px 16px; border-radius:6px; margin:30px 0 4px;}
+.secnote {color:#4B5563; font-size:.86rem; margin:0 0 10px 2px;}
+.kc {background:#fff; border:1px solid #E5E7EB; border-left:9px solid #9CA3AF; border-radius:8px; padding:12px 14px; min-height:132px; margin-bottom:8px;}
+.kc.good {border-left-color:#16A34A; background:#F0FDF4;} .kc.warn {border-left-color:#F59E0B; background:#FFFBEB;}
+.kc.bad {border-left-color:#DC2626; background:#FEF2F2;}
+.kl {display:flex; justify-content:space-between; align-items:center; gap:6px; font-size:.78rem; font-weight:700; color:#374151;}
+.tag {font-size:.62rem; font-weight:800; padding:2px 8px; border-radius:10px; white-space:nowrap;}
+.tag.good {background:#16A34A; color:#fff;} .tag.warn {background:#F59E0B; color:#fff;} .tag.bad {background:#DC2626; color:#fff;}
+.kv {font-size:2.15rem; font-weight:900; color:#14181F; line-height:1.15; margin:5px 0 2px;}
+.kd {font-size:.82rem; font-weight:800; min-height:1.1rem;} .kd.up {color:#15803D;} .kd.down {color:#B91C1C;}
+.kh {font-size:.72rem; color:#6B7280; margin-top:3px;}
+.verdict {border-radius:10px; padding:18px 24px; margin:10px 0 6px; color:#fff;}
+.verdict.bad {background:#DC2626;} .verdict.warn {background:#D97706;} .verdict.good {background:#16A34A;}
+.verdict .v1 {font-size:1.6rem; font-weight:900;} .verdict .v2 {font-size:1rem; margin-top:4px; opacity:.95;}
+.act {border-radius:8px; padding:12px 16px; margin:8px 0; border:1px solid #E5E7EB; border-left:9px solid #9CA3AF;}
+.act.bad {background:#FEF2F2; border-left-color:#DC2626;} .act.warn {background:#FFFBEB; border-left-color:#F59E0B;}
+.act.good {background:#F0FDF4; border-left-color:#16A34A;}
+.act .ah {font-size:1.05rem; font-weight:800; color:#14181F;}
+.act .ae {font-size:.95rem; margin-top:5px; color:#1F2937;}
+.act .aa {font-size:.92rem; margin-top:6px; font-weight:700; color:#14181F;}
+.note {background:#F3F4F6; border-left:5px solid #FFC400; padding:8px 14px; border-radius:4px; font-size:.86rem; color:#374151; margin:6px 0 10px;}
 </style>
 """
 
@@ -31,28 +49,29 @@ def inject_css():
 
 
 def topbar(title, f, days=None):
-    sub = f"Platform: {f['platform']}   ·   City: {f['city']}   ·   Period: {f['d1']:%d %b %Y}  →  {f['d2']:%d %b %Y}"
+    sub = f"{f['platform']}  ·  {f['city']}  ·  {f['d1']:%d %b %Y} → {f['d2']:%d %b %Y}"
     if days is not None:
-        sub += f"   ·   {days} days"
-    st.markdown(f'<div class="topbar"><div class="t1">{title}</div><div class="t2">{sub}</div></div>',
+        sub += f"  ·  {days} days"
+    st.markdown(f'<div class="topbar"><div class="t1">{html.escape(title)}</div><div class="t2">{sub}</div></div>',
                 unsafe_allow_html=True)
 
 
-def strip(f, latest, days_txt):
-    cells = [("PLATFORM", f["platform"], True), ("CITY", f["city"], True), ("FROM", f"{f['d1']:%d %b %Y}", True),
-             ("TO", f"{f['d2']:%d %b %Y}", True), ("LATEST DATA IN SHEET", latest, False),
-             ("DAYS WITH DATA", days_txt, False)]
-    html = "".join(f'<div class="{"f" if fl else ""}">{k}<b>{v}</b></div>' for k, v, fl in cells)
-    st.markdown(f'<div class="strip">{html}</div>', unsafe_allow_html=True)
-    st.caption("Filters (yellow) are controlled from the sidebar on the left.")
+def legend():
+    st.markdown('<div class="legend"><span class="lg-good">Green: on target</span><span class="lg-warn">Amber: watch</span>'
+                '<span class="lg-bad">Red: act now</span></div>', unsafe_allow_html=True)
 
 
 def section(title, note=""):
-    n = f"<span>{note}</span>" if note else ""
-    st.markdown(f'<div class="sec">{title}{n}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="sec">{html.escape(title)}</div>', unsafe_allow_html=True)
+    if note:
+        st.markdown(f'<div class="secnote">{note}</div>', unsafe_allow_html=True)
 
 
-# ---------------------------------------------------------------- KPI cards
+def note(text):
+    st.markdown(f'<div class="note">{text}</div>', unsafe_allow_html=True)
+
+
+# ---------------------------------------------------------------- cards
 def delta_txt(cur, prev, kind):
     if cur is None or prev is None or pd.isna(cur) or pd.isna(prev):
         return None
@@ -63,9 +82,23 @@ def delta_txt(cur, prev, kind):
     return f"{(cur - prev) / abs(prev) * 100:+.1f}% vs prev"
 
 
-def kpi(col, label, cur, prev, fmt="{:,.0f}", kind="num", bad_up=False):
+def card(col, label, value, sub="", status="neutral", hint="", subcls=""):
+    tag = f'<span class="tag {status}">{I.TAGS[status]}</span>' if status in I.TAGS else ""
+    col.markdown(f'<div class="kc {status}"><div class="kl"><span>{label}</span>{tag}</div><div class="kv">{value}</div>'
+                 f'<div class="kd {subcls}">{sub}</div><div class="kh">{hint}</div></div>', unsafe_allow_html=True)
+
+
+def kpi(col, label, cur, prev, fmt="{:,.0f}", kind="num", bad_up=False, key=None):
     val = "–" if cur is None or pd.isna(cur) else fmt.format(cur)
-    col.metric(label, val, delta_txt(cur, prev, kind), delta_color="inverse" if bad_up else "normal", border=True)
+    sub, cls = "", ""
+    dt = delta_txt(cur, prev, kind)
+    if dt:
+        diff = cur - prev
+        if diff != 0:
+            good = (diff < 0) if bad_up else (diff > 0)
+            cls = "up" if good else "down"
+        sub = f"{'▲' if diff > 0 else ('▼' if diff < 0 else '=')} {dt}"
+    card(col, label, val, sub, I.status(key, cur) if key else "neutral", I.target_hint(key) if key else "", cls)
 
 
 # ---------------------------------------------------------------- excel
@@ -93,6 +126,24 @@ def download(label, sheets, filename, key):
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
+# ---------------------------------------------------------------- highlighted tables
+_TONE = {"good": "background-color:#DCFCE7;color:#14532D;font-weight:700",
+         "warn": "background-color:#FEF3C7;color:#78350F;font-weight:700",
+         "bad": "background-color:#FEE2E2;color:#7F1D1D;font-weight:700"}
+
+
+def _fmt(v):
+    if not I.is_num(v):
+        return "–" if v is None or (isinstance(v, float) and pd.isna(v)) else v
+    if isinstance(v, (int, np.integer)):
+        return f"{v:,}"
+    return f"{v:,.0f}" if abs(v) >= 1000 else (f"{v:,.2f}" if abs(v) < 100 else f"{v:,.1f}")
+
+
+def _pct(v):
+    return f"{v:.1f}%" if I.is_num(v) else "–"
+
+
 def rnd(df, nd=2):
     out = df.copy()
     for c in out.select_dtypes("float").columns:
@@ -100,9 +151,28 @@ def rnd(df, nd=2):
     return out
 
 
-def table(df, name, key, height=None, export=True):
+def styled(df, rules=None, first_row=False, text_cols=None):
+    rl = {**I.TABLE_RULES, **(rules or {})}
+    rl = {c: r for c, r in rl.items() if c in df.columns}
+    sty = df.style.format(_fmt)
+    pcts = [c for c in df.columns if str(c).endswith("%")]
+    if pcts:
+        sty = sty.format(_pct, subset=pcts)
+    mp = sty.map if hasattr(sty, "map") else sty.applymap
+    if first_row:
+        sty = sty.apply(lambda r: ["font-weight:800;background-color:#14181F;color:#fff"] * len(r) if r.name == 0
+                        else [""] * len(r), axis=1)
+    for c, r in rl.items():
+        mp(lambda v, r=r: _TONE.get(I.grade(v, *r), ""), subset=[c])
+    tc = [c for c in (text_cols or ["Status", "Segment"]) if c in df.columns]
+    if tc:
+        mp(lambda v: _TONE.get(I.tone_of_text(v), ""), subset=tc)
+    return sty
+
+
+def table(df, name, key, height=None, export=True, rules=None, first_row=False, text_cols=None):
     h = height or min(740, 38 + 35 * (len(df) + 1))
-    st.dataframe(rnd(df), width="stretch", hide_index=True, height=h)
+    st.dataframe(styled(df, rules, first_row, text_cols), width="stretch", hide_index=True, height=h)
     if export:
         c1, c2 = st.columns([1, 5])
         with c1:
@@ -121,25 +191,31 @@ def search(df, key, cols=("Courier ID", "Name")):
     return df[m]
 
 
-# ---------------------------------------------------------------- charts
-def line(df, x, ys, title="", names=None, bar=False, color=None, height=360):
-    names = names or {}
-    if color:
-        fig = px.bar(df, x=x, y=ys[0], color=color, title=title, barmode="group") if bar else \
-            px.line(df, x=x, y=ys[0], color=color, title=title, markers=True)
-    else:
-        long = df.melt(id_vars=[x], value_vars=ys, var_name="metric", value_name="value")
-        long["metric"] = long["metric"].map(lambda m: names.get(m, M.LABELS.get(m, m)))
-        fig = px.bar(long, x=x, y="value", color="metric", title=title) if bar else \
-            px.line(long, x=x, y="value", color="metric", title=title, markers=True)
-    fig.update_layout(height=height, margin=dict(l=10, r=10, t=50, b=10), legend_title_text="",
-                      legend=dict(orientation="h", y=-0.2))
-    fig.update_xaxes(title=None)
-    fig.update_yaxes(title=None)
-    return fig
+# ---------------------------------------------------------------- admin (upload is hidden from managers)
+def is_admin():
+    """Upload page is invisible unless the URL has ?admin=1 (and ADMIN_PASSWORD matches, if set in secrets)."""
+    if st.session_state.get("is_admin"):
+        return True
+    if st.query_params.get("admin") != "1":
+        return False
+    try:
+        apw = st.secrets.get("ADMIN_PASSWORD")
+    except Exception:
+        apw = None
+    if not apw:
+        st.session_state["is_admin"] = True
+        return True
+    p = st.sidebar.text_input("Admin password", type="password", key="adm_pw")
+    if p and p == apw:
+        st.session_state["is_admin"] = True
+        st.rerun()
+    return False
 
 
 # ---------------------------------------------------------------- global filters (sidebar)
+PRESETS = {"Last 7 days": 7, "Last 14 days": 14, "Last 30 days": 30, "All data": None, "Custom range": 0}
+
+
 def _dates(v):
     if isinstance(v, (tuple, list)):
         if len(v) == 2:
@@ -154,20 +230,28 @@ def render_filters():
     if m.empty:
         return None
     sb = st.sidebar
-    sb.markdown("### FILTERS")
+    sb.markdown("### Filters")
     platform = sb.selectbox("Platform", sorted(m["platform"].unique()), key="f_platform")
     mm = m[m["platform"] == platform]
     city = sb.selectbox("City", sorted(mm["city"].unique()), key="f_city")
     row = mm[mm["city"] == city].iloc[0]
-    dr = sb.date_input("Period (from → to)", value=(row.dmin, row.dmax), min_value=row.dmin, max_value=row.dmax,
-                       key=f"f_dates_{platform}_{city}")
-    d1, d2 = _dates(dr)
+    dmin, dmax = pd.to_datetime(row.dmin).date(), pd.to_datetime(row.dmax).date()
+    preset = sb.selectbox("Period", list(PRESETS), key="f_preset")
+    if preset == "Custom range":
+        d1, d2 = _dates(sb.date_input("From → to", value=(dmin, dmax), min_value=dmin, max_value=dmax,
+                                       key=f"f_dates_{platform}_{city}"))
+    else:
+        n = PRESETS[preset]
+        d2 = dmax
+        d1 = dmin if n is None else max(dmin, d2 - timedelta(days=n - 1))
+    sb.caption(f"Latest data: {dmax:%d %b %Y}")
     full = db.load("courier", platform, city, d1, d2)
-    f = dict(platform=platform, city=city, d1=d1, d2=d2, sup=(), ctype=(), veh=(), dmax=row.dmax)
+    f = dict(platform=platform, city=city, d1=d1, d2=d2, sup=(), ctype=(), veh=(), dmax=dmax)
     if not full.empty:
-        f["sup"] = tuple(sb.multiselect("Supervisor", sorted(full["supervisor"].dropna().unique()), key="f_sup"))
-        f["ctype"] = tuple(sb.multiselect("Courier type", sorted(full["courier_type"].dropna().unique()), key="f_ctype"))
-        f["veh"] = tuple(sb.multiselect("Vehicle type", sorted(full["vehicle_type"].dropna().unique()), key="f_veh"))
+        with sb.expander("More filters"):
+            f["sup"] = tuple(st.multiselect("Supervisor", sorted(full["supervisor"].dropna().unique()), key="f_sup"))
+            f["ctype"] = tuple(st.multiselect("Courier type", sorted(full["courier_type"].dropna().unique()), key="f_ctype"))
+            f["veh"] = tuple(st.multiselect("Vehicle type", sorted(full["vehicle_type"].dropna().unique()), key="f_veh"))
     st.session_state["filters"] = f
     return f
 
