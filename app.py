@@ -31,21 +31,17 @@ def _empty():
     st.info("No data has been loaded yet. Please contact the administrator.")
 
 
-pages = []
-if filters:
-    pages = [
-        st.Page(actions.render, title="Action Center", icon="🎯", url_path="actions", default=True),
-        st.Page(orders.render, title="Orders", icon="📦", url_path="orders"),
-        st.Page(cities.render, title="Cities", icon="🏙️", url_path="cities"),
-        st.Page(overview.render, title="Daily Report", icon="📊", url_path="daily"),
-        st.Page(couriers.render, title="Couriers", icon="🏍️", url_path="couriers"),
-        st.Page(curve.render, title="Courier Drill-down", icon="🔎", url_path="curve"),
-        st.Page(shifts.render, title="Shifts & Hours", icon="🕒", url_path="shifts"),
-        st.Page(cancels.render, title="Cancellations", icon="🚫", url_path="cancels"),
-    ]
+def _nodata():
+    st.title("Ops Dashboard")
+    st.info("No data loaded yet. The administrator needs to upload the files (they may have been cleared by a restart).")
+
+
+SPECS = [(actions.render, "Action Center", "🎯", "actions", True), (orders.render, "Orders", "📦", "orders", False),
+         (cities.render, "Cities", "🏙️", "cities", False), (overview.render, "Daily Report", "📊", "daily", False),
+         (couriers.render, "Couriers", "🏍️", "couriers", False), (curve.render, "Courier Drill-down", "🔎", "curve", False),
+         (shifts.render, "Shifts & Hours", "🕒", "shifts", False), (cancels.render, "Cancellations", "🚫", "cancels", False)]
+pages = [st.Page(fn if filters else _nodata, title=t, icon=i, url_path=u, default=d) for fn, t, i, u, d in SPECS]
 if admin:
     pages.append(st.Page(rules.render, title="Rules (admin)", icon="⚙️", url_path="rules"))
-    pages.append(st.Page(upload.render, title="Upload (admin)", icon="📤", url_path="upload", default=not filters))
-if not pages:
-    pages = [st.Page(_empty, title="Dashboard", url_path="home", default=True)]
+    pages.append(st.Page(upload.render, title="Upload (admin)", icon="📤", url_path="upload"))
 st.navigation(pages).run()
