@@ -11,10 +11,12 @@ pd.set_option("styler.render.max_elements", 5_000_000)
 
 CSS = """
 <style>
-#MainMenu, footer, [data-testid="stToolbar"], [data-testid="stToolbarActions"], [data-testid="stAppDeployButton"],
+#MainMenu, footer, [data-testid="stMainMenu"], [data-testid="stToolbarActions"], [data-testid="stAppDeployButton"],
 [data-testid="stDeployButton"], [data-testid="stStatusWidget"], [data-testid="stDecoration"],
-[class*="viewerBadge"], [class*="ViewerBadge"], [data-testid="manage-app-button"], .stAppDeployButton,
-a[href*="github.com"][target="_blank"][class*="toolbar"] {display:none !important; visibility:hidden !important;}
+[class*="viewerBadge"], [class*="ViewerBadge"], [data-testid="manage-app-button"], .stAppDeployButton {display:none !important;}
+[data-testid="stToolbar"] {display:flex !important; visibility:visible !important;}
+[data-testid="stExpandSidebarButton"], [data-testid="stSidebarCollapsedControl"], [data-testid="collapsedControl"],
+[data-testid="stSidebarCollapseButton"], [data-testid="stSidebarNav"] {display:flex !important; visibility:visible !important;}
 header[data-testid="stHeader"] {background:transparent !important;}
 .block-container {padding-top: 1.2rem; max-width: 1600px;}
 .topbar {background:#14181F; color:#fff; padding:16px 24px; border-radius:8px; margin-bottom:10px; border-bottom:5px solid #FFC400;}
