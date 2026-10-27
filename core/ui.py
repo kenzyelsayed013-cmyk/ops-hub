@@ -64,8 +64,7 @@ def topbar(title, f, days=None):
 
 
 def legend():
-    st.markdown('<div class="legend"><span class="lg-good">Green: on target</span><span class="lg-warn">Amber: watch</span>'
-                '<span class="lg-bad">Red: act now</span></div>', unsafe_allow_html=True)
+    pass
 
 
 def section(title, note=""):
@@ -278,7 +277,7 @@ def render_filters():
         st.caption(f"{d1:%d %b} → {d2:%d %b %Y}  ·  latest data {dmax:%d %b}")
         cities = tuple(sel)
         full = _load("courier", platform, cities, d1, d2)
-        f = dict(platform=platform, city=label, cities=cities, d1=d1, d2=d2, sup=(), ctype=(), veh=(), dmax=dmax)
+        f = dict(platform=platform, city=label, cities=cities, d1=d1, d2=d2, sup=(), ctype=(), veh=(), dmin=dmin, dmax=dmax)
         if not full.empty:
             with st.expander("More filters"):
                 f["sup"] = tuple(st.multiselect("Supervisor", sorted(full["supervisor"].dropna().unique()), key="f_sup"))
