@@ -48,6 +48,13 @@ def render():
     st.markdown("**VALID**")
     ui.table(ui.search(valid, "sh_q_valid"), f"valid_{day:%Y%m%d}", "sh_t_valid", height=min(460, 38 + 35 * (len(valid) + 1)), text_cols=SLOTS + ["Status"])
 
+    ns = d[(d["date"] == pd.Timestamp(day)) & (d["shifts_scheduled"] == 0) & ((d["delivered"] > 0) | (d["valid_hrs"] > 0))]
+    if not ns.empty:
+        st.markdown(f"**Worked but NOT scheduled ({len(ns)})**: not counted as VALID or INVALID")
+        ui.table(ns[["courier_id", "name", "city", "supervisor", "delivered", "valid_hrs"]].rename(
+            columns={"courier_id": "Courier ID", "name": "Name", "city": "City", "supervisor": "Supervisor", "delivered": "Orders", "valid_hrs": "Valid Hrs"}),
+            f"not_scheduled_{day:%Y%m%d}", "sh_t_ns", height=min(300, 38 + 35 * (len(ns) + 1)), export=False)
+
     ui.section("By courier")
     s = I.sched_days(d)
     g = s.groupby("courier_id").agg(Name=("name", "last"), City=("city", "last"), Supervisor=("supervisor", "last"), Scheduled_Days=("date", "count"),
