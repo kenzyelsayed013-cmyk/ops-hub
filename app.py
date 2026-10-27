@@ -1,9 +1,10 @@
 import streamlit as st
-from core import ui
-from views import upload, overview, couriers, curve, shifts, cancels, actions
+from core import ui, insights as I
+from views import upload, overview, couriers, curve, shifts, cancels, actions, cities, rules
 
 st.set_page_config(page_title="Ops Dashboard", page_icon="🛵", layout="wide")
 ui.inject_css()
+I.load_rules()
 
 # optional viewer password (APP_PASSWORD in Streamlit secrets)
 try:
@@ -34,6 +35,7 @@ pages = []
 if filters:
     pages = [
         st.Page(actions.render, title="Action Center", icon="🎯", url_path="actions", default=True),
+        st.Page(cities.render, title="Cities", icon="🏙️", url_path="cities"),
         st.Page(overview.render, title="Daily Report", icon="📊", url_path="daily"),
         st.Page(couriers.render, title="Couriers", icon="🏍️", url_path="couriers"),
         st.Page(curve.render, title="Courier Drill-down", icon="🔎", url_path="curve"),
@@ -41,6 +43,7 @@ if filters:
         st.Page(cancels.render, title="Cancellations", icon="🚫", url_path="cancels"),
     ]
 if admin:
+    pages.append(st.Page(rules.render, title="Rules (admin)", icon="⚙️", url_path="rules"))
     pages.append(st.Page(upload.render, title="Upload (admin)", icon="📤", url_path="upload", default=not filters))
 if not pages:
     pages = [st.Page(_empty, title="Dashboard", url_path="home", default=True)]
