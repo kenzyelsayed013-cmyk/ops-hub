@@ -208,7 +208,7 @@ def is_admin():
     if not apw:
         st.session_state["is_admin"] = True
         return True
-    p = st.sidebar.text_input("Admin password", type="password", key="adm_pw")
+    p = st.text_input("Admin password", type="password", key="adm_pw")
     if p and p == apw:
         st.session_state["is_admin"] = True
         st.rerun()
@@ -216,7 +216,7 @@ def is_admin():
 
 
 # ---------------------------------------------------------------- global filters (sidebar)
-PRESETS = {"Last 7 days": 7, "Last 14 days": 14, "Last 30 days": 30, "All data": None, "Custom range": 0}
+PRESETS = {"7 days": 7, "14 days": 14, "30 days": 30, "All": None, "Custom": 0}
 
 
 def _dates(v):
@@ -237,36 +237,53 @@ def _load(kind, platform, cities, d1, d2):
     return pd.concat(fr, ignore_index=True) if fr else pd.DataFrame()
 
 
+def _multi(label, opts, key):
+    if hasattr(st, "pills"):
+        return list(st.pills(label, opts, selection_mode="multi", default=opts, key=key) or [])
+    return st.multiselect(label, opts, default=opts, key=key)
+
+
+def _seg(label, opts, default, key):
+    if hasattr(st, "segmented_control"):
+        return st.segmented_control(label, opts, default=default, key=key) or default
+    return st.radio(label, opts, index=opts.index(default), horizontal=True, key=key)
+
+
 def render_filters():
+    """Filter bar at the top of every page (no sidebar)."""
     m = db.meta()
     if m.empty:
         return None
-    sb = st.sidebar
-    sb.markdown("### Filters")
-    platform = sb.selectbox("Platform", sorted(m["platform"].unique()), key="f_platform")
-    mm = m[m["platform"] == platform]
-    allc = sorted(mm["city"].unique())
-    sel = sb.multiselect("Cities", allc, default=allc, key=f"f_cities_{platform}") or allc
-    rows = mm[mm["city"].isin(sel)]
-    dmin, dmax = pd.to_datetime(rows["dmin"]).min().date(), pd.to_datetime(rows["dmax"]).max().date()
-    label = "All cities" if len(sel) == len(allc) and len(sel) > 1 else ", ".join(sel)
-    preset = sb.selectbox("Period", list(PRESETS), key="f_preset")
-    if preset == "Custom range":
-        d1, d2 = _dates(sb.date_input("From → to", value=(dmin, dmax), min_value=dmin, max_value=dmax,
-                                       key=f"f_dates_{platform}_{label}"))
-    else:
-        n = PRESETS[preset]
-        d2 = dmax
-        d1 = dmin if n is None else max(dmin, d2 - timedelta(days=n - 1))
-    sb.caption(f"Latest data: {dmax:%d %b %Y}")
-    cities = tuple(sel)
-    full = _load("courier", platform, cities, d1, d2)
-    f = dict(platform=platform, city=label, cities=cities, d1=d1, d2=d2, sup=(), ctype=(), veh=(), dmax=dmax)
-    if not full.empty:
-        with sb.expander("More filters"):
-            f["sup"] = tuple(st.multiselect("Supervisor", sorted(full["supervisor"].dropna().unique()), key="f_sup"))
-            f["ctype"] = tuple(st.multiselect("Courier type", sorted(full["courier_type"].dropna().unique()), key="f_ctype"))
-            f["veh"] = tuple(st.multiselect("Vehicle type", sorted(full["vehicle_type"].dropna().unique()), key="f_veh"))
+    with st.container(border=True):
+        plats = sorted(m["platform"].unique())
+        platform = _seg("Platform", plats, plats[0], "f_platform") if len(plats) > 1 else plats[0]
+        mm = m[m["platform"] == platform]
+        allc = sorted(mm["city"].unique())
+        sel = _multi("Cities", allc, f"f_cities_{platform}") or allc
+        rows = mm[mm["city"].isin(sel)]
+        dmin, dmax = pd.to_datetime(rows["dmin"]).min().date(), pd.to_datetime(rows["dmax"]).max().date()
+        label = "All cities" if len(sel) == len(allc) and len(sel) > 1 else ", ".join(sel)
+        c1, c2, c3 = st.columns([3, 3, 2])
+        with c1:
+            preset = _seg("Period", list(PRESETS), "7 days", "f_preset")
+        with c2:
+            if preset == "Custom":
+                d1, d2 = _dates(st.date_input("From → to", value=(dmin, dmax), min_value=dmin, max_value=dmax,
+                                              key=f"f_dates_{platform}_{label}"))
+            else:
+                n = PRESETS[preset]
+                d2 = dmax
+                d1 = dmin if n is None else max(dmin, d2 - timedelta(days=n - 1))
+                st.caption(f"{d1:%d %b} → {d2:%d %b %Y}  ·  latest data {dmax:%d %b}")
+        cities = tuple(sel)
+        full = _load("courier", platform, cities, d1, d2)
+        f = dict(platform=platform, city=label, cities=cities, d1=d1, d2=d2, sup=(), ctype=(), veh=(), dmax=dmax)
+        if not full.empty:
+            with c3:
+                with st.expander("More filters"):
+                    f["sup"] = tuple(st.multiselect("Supervisor", sorted(full["supervisor"].dropna().unique()), key="f_sup"))
+                    f["ctype"] = tuple(st.multiselect("Courier type", sorted(full["courier_type"].dropna().unique()), key="f_ctype"))
+                    f["veh"] = tuple(st.multiselect("Vehicle type", sorted(full["vehicle_type"].dropna().unique()), key="f_veh"))
     st.session_state["filters"] = f
     return f
 
