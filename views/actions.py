@@ -44,11 +44,11 @@ def render():
     if not cd.empty:
         last = cd["date"].max()
         v, dr = I.day_lists(cd, last)
-        ui.section(f"Latest day {last:%a %d %b}: {len(v)} valid · {len(dr)} dropped")
+        ui.section(f"Latest day {last:%a %d %b}: {len(v)} valid · {len(dr)} INVALID")
         if dr.empty:
-            st.success("No courier dropped.")
+            st.success("No INVALID courier.")
         else:
-            ui.table(dr, "dropped_latest", "ac_drop", export=False, height=min(420, 38 + 35 * (len(dr) + 1)), text_cols=list(dr.columns[-7:-1]))
+            ui.table(dr, "invalid_latest", "ac_drop", export=False, height=min(420, 38 + 35 * (len(dr) + 1)), text_cols=["Status"] + list(dr.columns[-6:]))
         rc = cd.groupby(["courier_id", "name", "city", "supervisor"])[["rejected_courier", "accepted"]].sum().reset_index()
         rc = rc[rc["rejected_courier"] > 0].sort_values("rejected_courier", ascending=False).head(20)
         ui.section("Couriers who rejected orders (target 0)")
