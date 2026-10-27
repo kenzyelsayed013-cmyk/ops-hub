@@ -7,75 +7,62 @@ from core.config import SLOTS
 def render():
     f = ui.filters()
     d = ui.get_couriers()
-    ui.topbar(f"{f['platform'].upper()}  ·  SHIFTS & WORKING HOURS", f, days=(f["d2"] - f["d1"]).days + 1)
+    ui.topbar(f"{f['platform'].upper()}  ·  SHIFTS & ATTENDANCE", f, days=(f["d2"] - f["d1"]).days + 1)
     if d.empty:
         st.info("No courier data for this period / filters.")
         return
     base = f"{f['platform']}_{f['city']}"
-    ui.legend()
-
-    # ---------------------------------------------------------- hours per day
-    ui.section("Working hours per day", "valid online hours · couriers under 4 hrs are flagged because short days cost capacity")
-    daily = d.groupby("date").agg(Total=("valid_hrs", "sum"), Active=("active", "sum")).reset_index()
-    short = d[(d["valid_hrs"] > 0) & (d["valid_hrs"] < 4)].groupby("date").size().rename("Short").reset_index()
-    daily = daily.merge(short, on="date", how="left").fillna({"Short": 0}).sort_values("date", ascending=False)
-    dt = pd.DataFrame({"Date": daily["date"].dt.strftime("%Y-%m-%d"), "Day": daily["date"].dt.strftime("%a"),
-                       "Active Couriers": daily["Active"], "Total Online Hrs": daily["Total"],
-                       "Avg Hrs / Active Courier": daily["Total"] / daily["Active"].replace(0, float("nan")),
-                       "Couriers under 4 hrs": daily["Short"],
-                       "Active % under 4 hrs": daily["Short"] / daily["Active"].replace(0, float("nan")) * 100})
-    ui.table(dt, f"hours_by_day_{base}", "hr_day", rules={"Active % under 4 hrs": (15, 30, False)})
-
-    ui.section("Hours per courier per day", "green 6+ hrs · amber 3-6 · red under 3 · blank = did not work")
-    hrs = d.assign(valid_hrs=d["valid_hrs"].round(2)).pivot_table(
-        index=["courier_id", "name"], columns="date", values="valid_hrs", aggfunc="sum").fillna(0)
-    act = hrs > 0
-    avg = hrs.sum(axis=1) / act.sum(axis=1).replace(0, float("nan"))
-    hrs.columns = [c.strftime("%m-%d") for c in hrs.columns]
-    daycols = list(hrs.columns)
-    hrs.insert(0, "Avg Hrs / Working Day", avg.round(2))
-    hrs.insert(1, "Total Hrs", hrs[daycols].sum(axis=1).round(1))
-    hrs.insert(2, "Working Days", act.sum(axis=1))
-    hrs = hrs.reset_index().rename(columns={"courier_id": "Courier ID", "name": "Name"}).sort_values("Avg Hrs / Working Day")
-    ui.table(ui.search(hrs, "hr_q"), f"daily_hours_{base}", "hr_t", height=520, rules={c: (6, 3, True, True) for c in daycols})
-
-    # ---------------------------------------------------------- shifts
-    sd = M.shift_day_stats(d)
-    ui.section("Shift completion", "Keeta splits the day into 6 windows; each courier is usually scheduled on 3")
-    if sd.empty:
+    vd = I.valid_by_day(d)
+    if vd.empty:
         st.info("No scheduled shifts in this period.")
         return
-    ui.note("A shift is qualified when the courier met the required online time in that window. "
-            "Completed all = every scheduled window of the day is qualified.")
-    tot_c = sd["Couriers_Scheduled"].sum()
-    ca, qs = sd["Completed_All"].sum() / tot_c, sd["Qualified_Shifts"].sum() / sd["Sched_Shifts"].sum()
-    k = st.columns(3)
-    ui.card(k[0], "Couriers who completed all shifts", f"{ca:.1%}", "", I.grade(ca * 100, 70, 50, True), "Green ≥70% · red <50%")
-    ui.card(k[1], "Qualified shifts", f"{qs:.1%}", "", I.grade(qs * 100, 80, 60, True), "Green ≥80% · red <60%")
-    ui.card(k[2], "Scheduled courier-days", f"{tot_c:,}")
+    ui.legend()
+    A = I.attendance_stats(d)
+    ui.section("Totals")
+    k = st.columns(4)
+    for col, lab, key, v in [(k[0], "Attendance", "attendance", A["att"]), (k[1], "Couriers completing all shifts", "valid_rate", A["valid"])]:
+        ui.card(col, lab, f"{v:.2%}", "", I.status(key, v), I.target_hint(key) + "  ·  " + I.gap_txt(key, v))
+    ui.card(k[2], "Qualified shifts", f"{A['qual']:.2%}", "", I.grade(A["qual"] * 100, 100, 90, True), "Target 100%")
+    ui.card(k[3], "Scheduled courier-days", f"{A['n']:,}")
 
-    sdd = sd.sort_values("date", ascending=False)
-    ui.table(pd.DataFrame({"Date": sdd["date"].dt.strftime("%Y-%m-%d"), "Day": sdd["date"].dt.strftime("%a"),
-                           "Couriers Scheduled": sdd["Couriers_Scheduled"], "Completed all": sdd["Completed_All"],
-                           "Completed all %": sdd["Completed_All_%"], "Scheduled shifts": sdd["Sched_Shifts"],
-                           "Qualified shifts": sdd["Qualified_Shifts"], "Qualified shifts %": sdd["Qualified_Shifts_%"]}),
-             f"shift_compliance_{base}", "sh_day")
+    ui.section("Day by day")
+    t = pd.DataFrame({"Date": vd["date"].dt.strftime("%Y-%m-%d"), "Day": vd["date"].dt.strftime("%a") + vd["Mand"].map({True: " ★", False: ""}), "Scheduled": vd["Scheduled"],
+                      "Worked": vd["Attended"], "Absent": vd["Absent"], "Attendance %": vd["Attendance %"],
+                      "Valid": vd["Valid"], "Dropped": vd["Dropped"], "Missed shifts": vd["ShiftFail"], "Low orders": vd["OrderFail"], "Valid %": vd["Valid %"], "Qualified shifts %": vd["Qualified shifts %"]})
+    tt = {"Date": "PERIOD", "Day": "total", "Scheduled": vd["Scheduled"].sum(), "Worked": vd["Attended"].sum(), "Absent": vd["Absent"].sum(),
+          "Attendance %": A["att"] * 100, "Valid": vd["Valid"].sum(), "Dropped": vd["Dropped"].sum(), "Missed shifts": vd["ShiftFail"].sum(), "Low orders": vd["OrderFail"].sum(), "Valid %": A["valid"] * 100,
+          "Qualified shifts %": A["qual"] * 100}
+    ui.table(pd.concat([pd.DataFrame([tt]), t], ignore_index=True), f"shift_days_{base}", "sh_day", first_row=True,
+             height=min(600, 38 + 35 * (len(t) + 2)))
 
-    ui.section("Shifts by courier", "lowest compliance first")
-    sc = M.shift_courier_stats(d).rename(columns={
-        "Days_Scheduled": "Days Scheduled", "Days_Completed_All": "Days Completed All", "Shifts_Scheduled": "Shifts Scheduled",
-        "Shifts_Qualified": "Shifts Qualified", "Days_Not_Completed": "Days Not Completed",
-        "Completed_All_%": "Completed all %", "Shifts_Qualified_%": "Qualified shifts %"})
-    if st.checkbox("Only couriers with missed shifts", key="sh_bad"):
-        sc = sc[sc["Days Not Completed"] > 0]
-    ui.table(ui.search(sc, "sh_q"), f"shifts_by_courier_{base}", "sh_t1", height=420)
+    ui.section("Who is valid and who dropped, by day")
+    days = list(vd["date"])
+    day = st.selectbox("Day", days, format_func=lambda x: f"{x:%a %d %b %Y}", key="sh_pick")
+    st.caption(I.rule_sentence() + "  ★ = mandatory day")
+    valid, drop = I.day_lists(d, day)
+    c1, c2 = st.columns(2)
+    ui.card(c1, "Valid couriers", f"{len(valid):,}", "completed all shifts", "good" if len(drop) == 0 else "neutral")
+    ui.card(c2, "Dropped couriers", f"{len(drop):,}", "missed at least one shift", "bad" if len(drop) else "good", "Target 0")
+    st.markdown("**Dropped**")
+    ui.table(ui.search(drop, "sh_q_drop"), f"dropped_{day:%Y%m%d}", "sh_t_drop", height=min(460, 38 + 35 * (len(drop) + 1)), text_cols=SLOTS, rules={"Orders": (0, 10**9, True)})
+    st.markdown("**Valid**")
+    ui.table(ui.search(valid, "sh_q_valid"), f"valid_{day:%Y%m%d}", "sh_t_valid", height=min(460, 38 + 35 * (len(valid) + 1)), text_cols=SLOTS)
 
-    ui.section("Shift detail by day", "✅ qualified · ❌ unqualified · · not scheduled")
-    det = M.shift_symbols(d[d["shifts_scheduled"] > 0])
-    if st.checkbox("Only days with a missed shift", key="sh_bad2"):
-        det = det[det["shifts_qualified"] < det["shifts_scheduled"]]
-    det = det.rename(columns={"date": "Date", "courier_id": "Courier ID", "name": "Name", "valid_hrs": "Valid Hrs",
-                              "shifts_scheduled": "Scheduled", "shifts_qualified": "Qualified"})
-    det = det.sort_values("Date", ascending=False)
-    det["Date"] = det["Date"].dt.strftime("%Y-%m-%d")
-    ui.table(ui.search(det, "sh_q2"), f"shifts_detail_{base}", "sh_t2", height=420, text_cols=SLOTS)
+    ui.section("By courier")
+    s = I.sched_days(d)
+    g = s.groupby("courier_id").agg(Name=("name", "last"), City=("city", "last"), Supervisor=("supervisor", "last"), Scheduled_Days=("date", "count"),
+                                    Worked=("attended", "sum"), Valid=("valid", "sum")).reset_index().rename(columns={"courier_id": "Courier ID"})
+    g["Absent"] = g["Scheduled_Days"] - g["Worked"]
+    g["Dropped"] = g["Scheduled_Days"] - g["Valid"]
+    g["Attendance %"] = g["Worked"] / g["Scheduled_Days"] * 100
+    g["Valid %"] = g["Valid"] / g["Scheduled_Days"] * 100
+    g = g.rename(columns={"Scheduled_Days": "Scheduled Days"}).sort_values(["Valid %", "Attendance %"])
+    if st.checkbox("Only couriers who dropped at least once", key="sh_bad"):
+        g = g[g["Dropped"] > 0]
+    ui.table(ui.search(g, "sh_q"), f"shifts_by_courier_{base}", "sh_t1", height=460)
+
+    ui.section("Online hours per day")
+    daily = d.groupby("date").agg(Total=("valid_hrs", "sum"), Active=("active", "sum")).reset_index().sort_values("date", ascending=False)
+    ui.table(pd.DataFrame({"Date": daily["date"].dt.strftime("%Y-%m-%d"), "Day": daily["date"].dt.strftime("%a"), "Active Couriers": daily["Active"],
+                           "Total Online Hrs": daily["Total"], "Avg Hrs / Active Courier": daily["Total"] / daily["Active"].replace(0, float("nan"))}),
+             f"hours_{base}", "hr_day")
