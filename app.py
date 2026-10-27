@@ -2,7 +2,7 @@ import streamlit as st
 from core import ui, insights as I
 from views import upload, overview, couriers, curve, shifts, cancels, actions, cities, rules, orders
 
-st.set_page_config(page_title="Ops Dashboard", page_icon="🛵", layout="wide")
+st.set_page_config(page_title="Ops Dashboard", page_icon="🛵", layout="wide", initial_sidebar_state="expanded")
 ui.inject_css()
 I.load_rules()
 
