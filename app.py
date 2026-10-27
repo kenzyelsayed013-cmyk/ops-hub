@@ -1,6 +1,6 @@
 import streamlit as st
 from core import ui, insights as I
-from views import upload, overview, couriers, curve, shifts, cancels, actions, cities, rules, orders
+from views import upload, overview, couriers, curve, shifts, cancels, actions, cities, rules, orders, monthly
 
 st.set_page_config(page_title="Ops Dashboard", page_icon="🛵", layout="wide", initial_sidebar_state="expanded")
 ui.inject_css()
@@ -37,7 +37,7 @@ def _nodata():
 
 
 SPECS = [(actions.render, "Action Center", "🎯", "actions", True), (orders.render, "Orders", "📦", "orders", False),
-         (cities.render, "Cities", "🏙️", "cities", False), (overview.render, "Daily Report", "📊", "daily", False),
+         (cities.render, "Cities", "🏙️", "cities", False), (monthly.render, "Monthly Rules", "📅", "monthly", False), (overview.render, "Daily Report", "📊", "daily", False),
          (couriers.render, "Couriers", "🏍️", "couriers", False), (curve.render, "Courier Drill-down", "🔎", "curve", False),
          (shifts.render, "Shifts & Hours", "🕒", "shifts", False), (cancels.render, "Cancellations", "🚫", "cancels", False)]
 pages = [st.Page(fn if filters else _nodata, title=t, icon=i, url_path=u, default=d) for fn, t, i, u, d in SPECS]
