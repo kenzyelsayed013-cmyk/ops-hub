@@ -45,7 +45,7 @@ def render():
         act = g[g["active"]]
         first = act["date"].min() if (start_mode == "First working day" and not act.empty) else g["date"].min()
         last = act["date"].max() if not act.empty else g["date"].max()
-        g = g[(g["date"] >= first) & (g["date"] <= last)].set_index("date")
+        g = g[(g["date"] >= first) & (g["date"] <= last)].drop_duplicates("date").set_index("date")
         g = g.reindex(pd.date_range(first, last, freq="D"))
         g.index.name = "date"
         for col in ("delivered", "accepted", "rejected", "rejected_courier", "rejected_auto", "di_cancels", "large_orders",
@@ -67,9 +67,9 @@ def render():
         ui.card(k[2], "Orders / working day", f"{r['Orders_per_Active_Day']:.1f}" if pd.notna(r["Orders_per_Active_Day"]) else "–",
                 f"{int(r['Active_Days'])} working days")
         ui.card(k[3], "Hours / working day", f"{r['Hrs_per_Active_Day']:.1f}" if pd.notna(r["Hrs_per_Active_Day"]) else "–")
-        ui.card(k[4], "On-time rate", f"{ot:.1f}%" if pd.notna(ot) else "–", "", I.grade(ot, 90, 80, True), "Target ≥ 90%")
+        ui.card(k[4], "On-time rate", f"{ot:.2f}%" if pd.notna(ot) else "–", "", I.grade(ot, 99.6, 99, True), "Target ≥ 99.6%")
         ui.card(k[5], "Avg delivery (min)", f"{r['Avg_Delivery_min']:.1f}" if pd.notna(r["Avg_Delivery_min"]) else "–", "",
-                I.grade(r["Avg_Delivery_min"], 35, 45, False), "Target ≤ 35")
+                "neutral")
     else:
         t = s[["Courier ID", "Name", "Segment", "First_Active", "Last_Active", "Active_Days", "Delivered", "Orders_per_Active_Day",
                "Hrs_per_Active_Day", "On_time_%", "Rejected"]].rename(columns={
