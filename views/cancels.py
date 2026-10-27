@@ -13,8 +13,6 @@ def render():
         return
     base = f"{f['platform']}_{f['city']}"
     ui.legend()
-    ui.note("Rejected (Courier) and Rejected (Auto) are real counts from the Keeta export. Delivery-Issue cancellations come only as a "
-            "rate, so their count is an estimate (rate × accepted tasks).")
 
     rej, acc = d["rejected"].sum(), d["accepted"].sum()
     rt = rej / (rej + acc) * 100 if (rej + acc) else np.nan
@@ -27,9 +25,9 @@ def render():
     ui.card(k[1], "Rejected (auto)", f"{d['rejected_auto'].sum():,.0f}")
     ui.card(k[2], "Delivery-issue cancels (est.)", f"{d['di_cancels'].sum():,.0f}")
     ui.card(k[3], "Total rejected", f"{rej:,.0f}")
-    ui.card(k[4], "Reject rate", f"{rt:.1f}%" if pd.notna(rt) else "–", "of accepted + rejected", I.grade(rt, 5, 10, False), "Green ≤5% · red >10%")
+    ui.card(k[4], "Rejected by couriers", f"{d['rejected_courier'].sum():,.0f}", "", I.grade(d["rejected_courier"].sum(), 0, 0, False), "Target 0")
     ui.card(k[5], "Top 10 couriers' share", f"{top10:.0f}%" if pd.notna(top10) else "–",
-            "of all rejections", I.grade(top10, 40, 60, False) if pd.notna(top10) else "neutral", "High = a few couriers drive it")
+            "of all rejections")
 
     ui.section("Day by day", "newest first · red days are where the most orders were lost")
     dd = d.groupby("date").agg(Accepted=("accepted", "sum"), Rejected_Courier=("rejected_courier", "sum"),
