@@ -26,10 +26,6 @@ def render():
     s = M.courier_summary(cd) if not cd.empty else pd.DataFrame()
     A = I.attendance_stats(cd)
     rejc = cd["rejected_courier"].sum() if not cd.empty else np.nan
-    acts = I.build_actions(co, daily, tot, ptot, cd, s, n_days)
-    nb, nw = sum(a["sev"] == "bad" for a in acts), sum(a["sev"] == "warn" for a in acts)
-    sev, head = ("bad", f"{nb} issue{'s' if nb != 1 else ''} to fix now") if nb else (("warn", f"{nw} to watch") if nw else ("good", "All on target"))
-    st.markdown(f'<div class="verdict {sev}"><div class="v1">{head}</div></div>', unsafe_allow_html=True)
     ui.legend()
 
     ui.section("Key numbers")
@@ -44,16 +40,6 @@ def render():
     if len(f["cities"]) > 1:
         ui.section("Cities")
         ui.table(I.city_table(co, cd), "cities_total", "ac_city", export=False, first_row=True, height=38 + 35 * (len(f["cities"]) + 2))
-
-    ui.section("What to do")
-    for sev_k, title in GROUPS:
-        items = [a for a in acts if a["sev"] == sev_k]
-        if items:
-            st.markdown(f"**{title}** ({len(items)})")
-            for a in items:
-                st.markdown(f'<div class="act {sev_k}"><div class="ah">{html.escape(a["title"])}</div>'
-                            f'<div class="ae">{html.escape(a["evidence"])}</div><div class="aa">{html.escape(a["action"])}</div></div>',
-                            unsafe_allow_html=True)
 
     if not cd.empty:
         last = cd["date"].max()
