@@ -19,7 +19,8 @@ COACH_BELOW = 97   # courier on-time % under this (with 30+ deliveries) = needs 
 
 RULES_FILE = Path(__file__).resolve().parent.parent / "rules.json"
 DEFAULT_RULES = {
-    "min_orders_normal": 3, "min_orders_mandatory": 7, "mandatory_weekdays": [3, 4], "mandatory_dates": [],
+    "min_orders_normal": 3, "min_orders_mandatory": 7, "mandatory_weekdays": [], "mandatory_dates": [],
+    "mand_required": 6, "mand_total": 7, "min_days_month": 26,
     "require_all_shifts": True,
     "targets": {"ontime_rate": [99.6, 99.0], "cancel_rate_di": [0.19, 0.5], "attendance": [100, 95], "valid_rate": [100, 90]},
 }
@@ -61,14 +62,15 @@ def rule_sentence():
     extra = f" + {len(R['mandatory_dates'])} extra date(s)" if R["mandatory_dates"] else ""
     return (f"A courier is VALID on a scheduled day if he " + ("completes all his shifts and " if R["require_all_shifts"] else "")
             + f"delivers at least {R['min_orders_normal']} orders on a normal day or {R['min_orders_mandatory']} on a mandatory day "
-            f"(mandatory: {days}{extra}). The order minimum applies only to couriers who deliver at all in the period.")
+            f"(mandatory: {days}{extra}). The order minimum applies only to couriers who deliver at all in the period. "
+            f"Monthly: attend {R['mand_required']} of {R['mand_total']} mandatory days and at least {R['min_days_month']} days in the month.")
 
 TABLE_RULES = {
     "On-time %": (99.6, 99, True), "Cancel %": (0.19, 0.5, False),
     "Rejected (Courier)": (0, 0, False), "Courier Rejects": (0, 0, False),
     "Attendance %": (100, 95, True), "Valid %": (100, 90, True),
     "Completed all %": (100, 90, True), "Qualified shifts %": (100, 90, True),
-    "Days Not Completed": (0, 2, False), "Dropped": (0, 0, False), "Absent": (0, 0, False),
+    "Days Not Completed": (0, 2, False), "INVALID": (0, 0, False), "INVALID Days": (0, 0, False), "Missed Mandatory": (0, 1, False), "Absent": (0, 0, False),
     "Delivered vs prev day %": (0, -10, True),
 }
 TAGS = {"good": "ON TARGET", "warn": "WATCH", "bad": "ACT NOW"}
@@ -119,7 +121,9 @@ def fmtv(k, v):
 
 def tone_of_text(v):
     s = str(v)
-    if s.startswith(("✔", "✅", "Star")):
+    if s.startswith("INVALID"):
+        return "bad"
+    if s.startswith(("✔", "✅", "Star", "VALID")):
         return "good"
     if s.startswith(("⚠", "Low eff")):
         return "warn"
@@ -187,15 +191,21 @@ def day_lists(cd, day):
     s = s[s["date"] == pd.Timestamp(day)]
     sym = {"qualified": "✅", "unqualified": "❌", "off": "·"}
 
-    def fmt(x, reason):
+    def fmt(x, reason, status):
         cols = ["courier_id", "name", "city", "supervisor", "delivered", "min_orders", "shifts_scheduled", "shifts_qualified", "valid_hrs"]
         o = x[cols + (["reason"] if reason else []) + SLOT_COLS].copy()
         for c in SLOT_COLS:
             o[c] = o[c].map(sym).fillna("·")
+        o.insert(2, "Status", status)
         return o.rename(columns={"courier_id": "Courier ID", "name": "Name", "city": "City", "supervisor": "Supervisor",
                                  "delivered": "Orders", "min_orders": "Min Orders", "shifts_scheduled": "Shifts", "shifts_qualified": "Qualified",
-                                 "valid_hrs": "Valid Hrs", "reason": "Why dropped", **dict(zip(SLOT_COLS, SLOTS))}).reset_index(drop=True)
-    return fmt(s[s["valid"]], False), fmt(s[~s["valid"]].sort_values("delivered"), True)
+                                 "valid_hrs": "Valid Hrs", "reason": "Why INVALID", **dict(zip(SLOT_COLS, SLOTS))}).reset_index(drop=True)
+    return fmt(s[s["valid"]], False, "VALID"), fmt(s[~s["valid"]].sort_values("delivered"), True, "INVALID")
+
+
+def mandatory_between(d1, d2):
+    R = RULES
+    return [d for d in pd.date_range(d1, d2) if d.dayofweek in R["mandatory_weekdays"] or d.strftime("%Y-%m-%d") in R["mandatory_dates"]]
 
 
 # ---------------------------------------------------------------- cities
@@ -219,7 +229,7 @@ def city_table(co, cd, day=None):
             s = sched_days(b)
             r.update({"Scheduled Courier-days": st_["n"], "Attendance %": st_["att"] * 100 if st_["n"] else np.nan,
                       "Valid %": st_["valid"] * 100 if st_["n"] else np.nan,
-                      "Valid Couriers": int(s["valid"].sum()) if len(s) else 0, "Dropped": int((~s["valid"]).sum()) if len(s) else 0,
+                      "Valid Couriers": int(s["valid"].sum()) if len(s) else 0, "INVALID": int((~s["valid"]).sum()) if len(s) else 0,
                       "Courier Rejects": b["rejected_courier"].sum()})
         return r
     rows = [one("ALL CITIES", co, cd)]
@@ -294,7 +304,7 @@ def build_actions(co, daily, tot, ptot, cd, s, n_days):
             if not vd.empty:
                 w = vd.loc[vd["Valid %"].idxmin()]
                 if w["Valid %"] < 100:
-                    add("warn", f"Worst shift day: {w['date']:%a %d %b}", f"{w['Valid']:.0f} valid, {w['Dropped']:.0f} dropped of {w['Scheduled']:.0f} scheduled ({w['Valid %']:.1f}%)",
+                    add("warn", f"Worst shift day: {w['date']:%a %d %b}", f"{w['Valid']:.0f} valid, {w['Dropped']:.0f} INVALID of {w['Scheduled']:.0f} scheduled ({w['Valid %']:.1f}%)",
                         "Find why that day lost couriers.")
 
     if daily is not None and not daily.empty:
