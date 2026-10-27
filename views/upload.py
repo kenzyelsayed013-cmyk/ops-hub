@@ -75,6 +75,7 @@ def render():
         with st.spinner("Saving…"):
             for name, kind, df in parsed:
                 db.save(kind, df, platform, city, name)
+        st.cache_data.clear()
         st.success("Saved. Open any page from the sidebar.")
         st.rerun()
 
