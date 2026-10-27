@@ -1,4 +1,5 @@
 """Shared UI: filters, status cards, colour-highlighted tables, Excel export. Numbers only, no charts."""
+import hashlib
 import html
 import io
 from datetime import timedelta
@@ -262,7 +263,7 @@ def render_filters():
         platform = _seg("Platform", plats, plats[0], "f_platform") if len(plats) > 1 else plats[0]
         mm = m[m["platform"] == platform]
         allc = sorted(mm["city"].unique())
-        sel = _multi("Cities", allc, f"f_cities_{platform}") or allc
+        sel = _multi("Cities", allc, f"f_cities_{platform}_{hashlib.md5('|'.join(allc).encode()).hexdigest()[:8]}") or allc
         rows = mm[mm["city"].isin(sel)]
         dmin, dmax = pd.to_datetime(rows["dmin"]).min().date(), pd.to_datetime(rows["dmax"]).max().date()
         label = "All cities" if len(sel) == len(allc) and len(sel) > 1 else ", ".join(sel)
