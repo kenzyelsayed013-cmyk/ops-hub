@@ -74,8 +74,7 @@ def render():
     c = st.columns(6)
     ui.card(c[0], "Couriers listed", f"{listed:,}")
     ui.card(c[1], "Active couriers", f"{active:,}", f"{active / listed:.0%} of listed" if listed else "")
-    ui.card(c[2], "Listed, zero deliveries", f"{listed - active:,}", f"{idle_sh:.0%} of listed",
-            I.grade(idle_sh * 100, 20, 40, False) if pd.notna(idle_sh) else "neutral", "Green ≤20% · red >40%")
+    ui.card(c[2], "Listed, zero deliveries", f"{listed - active:,}", f"{idle_sh:.0%} of listed")
     ui.card(c[3], "Delivered orders", f"{dl:,.0f}")
     ui.card(c[4], "Orders / active courier / day", f"{dl / act_days:.1f}" if act_days else "–")
     ui.card(c[5], "Orders / valid online hour", f"{dl / hrs:.2f}" if hrs else "–")
@@ -84,15 +83,14 @@ def render():
     ui.card(c[1], "Rejected tasks", f"{d['rejected'].sum():,.0f}")
     ui.card(c[2], "Overdue tasks", f"{d['overdue'].sum():,.0f}")
     ui.card(c[3], "Severely overdue", f"{d['severe_overdue'].sum():,.0f}")
-    ui.card(c[4], "On-time rate (weighted)", f"{ontime:.1%}" if pd.notna(ontime) else "–", "", I.status("ontime_rate", ontime),
-            I.target_hint("ontime_rate"))
+    ui.card(c[4], "On-time rate (weighted)", f"{ontime:.2%}" if pd.notna(ontime) else "–", "", I.status("ontime_rate", ontime),
+            I.target_hint("ontime_rate") + "  ·  " + I.gap_txt("ontime_rate", ontime))
     ui.card(c[5], "Avg delivery time (min)", f"{avgdel:.1f}" if pd.notna(avgdel) else "–", "", I.status("avg_delivery_min", avgdel),
             I.target_hint("avg_delivery_min"))
 
     ui.section("Who to reward, coach, or remove", "every courier falls in exactly one group")
     ui.table(_segments(s), f"segments_{base}", "cr_seg", export=False, height=38 + 35 * 6)
-    ui.note("Star: 90%+ on-time and above-median orders/day · Needs coaching: 30+ deliveries and below 80% on-time · "
-            "Low efficiency: 20+ online hrs at under half the median orders/hr · Idle: zero deliveries.")
+    pass
 
     ds = s[s["Delivered"] > 0]
     ui.section("Top 10 couriers", "most delivered orders")
