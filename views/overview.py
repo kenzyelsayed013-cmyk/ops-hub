@@ -58,7 +58,6 @@ def render():
     tot = I.enrich(M.company_total(daily))
     cp = ui.get_company_prev()
     ptot = I.enrich(M.company_total(M.company_by_day(cp))) if not cp.empty else {}
-    st.caption(f"Latest day in data: {daily['date'].max():%d %b %Y}  ·  days with data: {int(tot['days'])} of {n_days}")
     ui.legend()
 
     ui.section("Headline numbers", "arrow = change vs the previous period of the same length, green = better, red = worse")
@@ -76,12 +75,12 @@ def render():
         "Date": d["date"].dt.strftime("%Y-%m-%d"), "Day": d["date"].dt.strftime("%a"), "Assigned": d["assigned"],
         "Delivered": d["delivered"], "Delivered vs prev day %": d["chg"], "Completion %": d["completion_rate"] * 100,
         "On-time %": d["ontime_rate"] * 100, "Avg Delivery (min)": d["avg_delivery_min"], "Over 55 min %": d["over55_prop"] * 100,
-        "Cancel %": d["cancel_rate_di"] * 100, "Rejected": d["rejected"], "Overdue": d["overdue"],
+        "Cancel %": d["cancel_rate_di"] * 100, "Rejected (Courier)": d["rejected_courier"], "Overdue": d["overdue"],
         "Severely Overdue": d["severe_overdue"], "Online Couriers": d["online"]})
     top = {"Date": "PERIOD", "Day": "total / avg", "Assigned": tot["assigned"], "Delivered": tot["delivered"],
            "Delivered vs prev day %": None, "Completion %": tot["completion_rate"] * 100, "On-time %": tot["ontime_rate"] * 100,
            "Avg Delivery (min)": tot["avg_delivery_min"], "Over 55 min %": tot["over55_prop"] * 100,
-           "Cancel %": tot["cancel_rate_di"] * 100, "Rejected": tot["rejected"], "Overdue": tot["overdue"],
+           "Cancel %": tot["cancel_rate_di"] * 100, "Rejected (Courier)": tot["rejected_courier"], "Overdue": tot["overdue"],
            "Severely Overdue": tot["severe_overdue"], "Online Couriers": tot["online"]}
     t = pd.concat([pd.DataFrame([top]), t], ignore_index=True)
     ui.table(t, f"daily_{f['platform']}_{f['city']}", "ov_daily", height=min(740, 38 + 35 * (len(t) + 1)), first_row=True)
