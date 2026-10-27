@@ -67,12 +67,10 @@ def legend():
 
 def section(title, note=""):
     st.markdown(f'<div class="sec">{html.escape(title)}</div>', unsafe_allow_html=True)
-    if note:
-        st.markdown(f'<div class="secnote">{note}</div>', unsafe_allow_html=True)
 
 
 def note(text):
-    st.markdown(f'<div class="note">{text}</div>', unsafe_allow_html=True)
+    pass
 
 
 # ---------------------------------------------------------------- cards
@@ -102,7 +100,8 @@ def kpi(col, label, cur, prev, fmt="{:,.0f}", kind="num", bad_up=False, key=None
             good = (diff < 0) if bad_up else (diff > 0)
             cls = "up" if good else "down"
         sub = f"{'▲' if diff > 0 else ('▼' if diff < 0 else '=')} {dt}"
-    card(col, label, val, sub, I.status(key, cur) if key else "neutral", I.target_hint(key) if key else "", cls)
+    hint = (I.target_hint(key) + "  ·  " + I.gap_txt(key, cur)) if key and I.target_hint(key) else ""
+    card(col, label, val, sub, I.status(key, cur) if key else "neutral", hint, cls)
 
 
 # ---------------------------------------------------------------- excel
@@ -229,6 +228,15 @@ def _dates(v):
     return v, v
 
 
+def _load(kind, platform, cities, d1, d2):
+    fr = []
+    for c in cities:
+        x = db.load(kind, platform, c, d1, d2)
+        if not x.empty:
+            fr.append(x.assign(city=c))
+    return pd.concat(fr, ignore_index=True) if fr else pd.DataFrame()
+
+
 def render_filters():
     m = db.meta()
     if m.empty:
@@ -237,20 +245,23 @@ def render_filters():
     sb.markdown("### Filters")
     platform = sb.selectbox("Platform", sorted(m["platform"].unique()), key="f_platform")
     mm = m[m["platform"] == platform]
-    city = sb.selectbox("City", sorted(mm["city"].unique()), key="f_city")
-    row = mm[mm["city"] == city].iloc[0]
-    dmin, dmax = pd.to_datetime(row.dmin).date(), pd.to_datetime(row.dmax).date()
+    allc = sorted(mm["city"].unique())
+    sel = sb.multiselect("Cities", allc, default=allc, key=f"f_cities_{platform}") or allc
+    rows = mm[mm["city"].isin(sel)]
+    dmin, dmax = pd.to_datetime(rows["dmin"]).min().date(), pd.to_datetime(rows["dmax"]).max().date()
+    label = "All cities" if len(sel) == len(allc) and len(sel) > 1 else ", ".join(sel)
     preset = sb.selectbox("Period", list(PRESETS), key="f_preset")
     if preset == "Custom range":
         d1, d2 = _dates(sb.date_input("From → to", value=(dmin, dmax), min_value=dmin, max_value=dmax,
-                                       key=f"f_dates_{platform}_{city}"))
+                                       key=f"f_dates_{platform}_{label}"))
     else:
         n = PRESETS[preset]
         d2 = dmax
         d1 = dmin if n is None else max(dmin, d2 - timedelta(days=n - 1))
     sb.caption(f"Latest data: {dmax:%d %b %Y}")
-    full = db.load("courier", platform, city, d1, d2)
-    f = dict(platform=platform, city=city, d1=d1, d2=d2, sup=(), ctype=(), veh=(), dmax=dmax)
+    cities = tuple(sel)
+    full = _load("courier", platform, cities, d1, d2)
+    f = dict(platform=platform, city=label, cities=cities, d1=d1, d2=d2, sup=(), ctype=(), veh=(), dmax=dmax)
     if not full.empty:
         with sb.expander("More filters"):
             f["sup"] = tuple(st.multiselect("Supervisor", sorted(full["supervisor"].dropna().unique()), key="f_sup"))
@@ -265,8 +276,8 @@ def filters():
 
 
 @st.cache_data(show_spinner=False)
-def couriers(platform, city, d1, d2, sup, ctype, veh):
-    d = db.load("courier", platform, city, d1, d2)
+def couriers(platform, cities, d1, d2, sup, ctype, veh):
+    d = _load("courier", platform, cities, d1, d2)
     if d.empty:
         return d
     if sup:
@@ -279,8 +290,8 @@ def couriers(platform, city, d1, d2, sup, ctype, veh):
 
 
 @st.cache_data(show_spinner=False)
-def company(platform, city, d1, d2, ctype):
-    d = db.load("company", platform, city, d1, d2)
+def company(platform, cities, d1, d2, ctype):
+    d = _load("company", platform, cities, d1, d2)
     if d.empty:
         return d
     return d[d["courier_type"].isin(ctype)] if ctype else d
@@ -288,18 +299,17 @@ def company(platform, city, d1, d2, ctype):
 
 def get_couriers():
     f = filters()
-    return couriers(f["platform"], f["city"], f["d1"], f["d2"], f["sup"], f["ctype"], f["veh"])
+    return couriers(f["platform"], f["cities"], f["d1"], f["d2"], f["sup"], f["ctype"], f["veh"])
 
 
 def get_company():
     f = filters()
-    return company(f["platform"], f["city"], f["d1"], f["d2"], f["ctype"])
+    return company(f["platform"], f["cities"], f["d1"], f["d2"], f["ctype"])
 
 
 def get_company_prev():
-    """Previous period of the same length, right before the selected one."""
     f = filters()
     n = (f["d2"] - f["d1"]).days + 1
     p2 = f["d1"] - timedelta(days=1)
     p1 = p2 - timedelta(days=n - 1)
-    return company(f["platform"], f["city"], p1, p2, f["ctype"])
+    return company(f["platform"], f["cities"], p1, p2, f["ctype"])
