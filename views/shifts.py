@@ -28,37 +28,37 @@ def render():
     ui.section("Day by day")
     t = pd.DataFrame({"Date": vd["date"].dt.strftime("%Y-%m-%d"), "Day": vd["date"].dt.strftime("%a") + vd["Mand"].map({True: " ★", False: ""}), "Scheduled": vd["Scheduled"],
                       "Worked": vd["Attended"], "Absent": vd["Absent"], "Attendance %": vd["Attendance %"],
-                      "Valid": vd["Valid"], "Dropped": vd["Dropped"], "Missed shifts": vd["ShiftFail"], "Low orders": vd["OrderFail"], "Valid %": vd["Valid %"], "Qualified shifts %": vd["Qualified shifts %"]})
+                      "Valid": vd["Valid"], "INVALID": vd["Dropped"], "Missed shifts": vd["ShiftFail"], "Low orders": vd["OrderFail"], "Valid %": vd["Valid %"], "Qualified shifts %": vd["Qualified shifts %"]})
     tt = {"Date": "PERIOD", "Day": "total", "Scheduled": vd["Scheduled"].sum(), "Worked": vd["Attended"].sum(), "Absent": vd["Absent"].sum(),
-          "Attendance %": A["att"] * 100, "Valid": vd["Valid"].sum(), "Dropped": vd["Dropped"].sum(), "Missed shifts": vd["ShiftFail"].sum(), "Low orders": vd["OrderFail"].sum(), "Valid %": A["valid"] * 100,
+          "Attendance %": A["att"] * 100, "Valid": vd["Valid"].sum(), "INVALID": vd["Dropped"].sum(), "Missed shifts": vd["ShiftFail"].sum(), "Low orders": vd["OrderFail"].sum(), "Valid %": A["valid"] * 100,
           "Qualified shifts %": A["qual"] * 100}
     ui.table(pd.concat([pd.DataFrame([tt]), t], ignore_index=True), f"shift_days_{base}", "sh_day", first_row=True,
              height=min(600, 38 + 35 * (len(t) + 2)))
 
-    ui.section("Who is valid and who dropped, by day")
+    ui.section("VALID and INVALID couriers, by day")
     days = list(vd["date"])
     day = st.selectbox("Day", days, format_func=lambda x: f"{x:%a %d %b %Y}", key="sh_pick")
     st.caption(I.rule_sentence() + "  ★ = mandatory day")
     valid, drop = I.day_lists(d, day)
     c1, c2 = st.columns(2)
-    ui.card(c1, "Valid couriers", f"{len(valid):,}", "completed all shifts", "good" if len(drop) == 0 else "neutral")
-    ui.card(c2, "Dropped couriers", f"{len(drop):,}", "missed at least one shift", "bad" if len(drop) else "good", "Target 0")
-    st.markdown("**Dropped**")
-    ui.table(ui.search(drop, "sh_q_drop"), f"dropped_{day:%Y%m%d}", "sh_t_drop", height=min(460, 38 + 35 * (len(drop) + 1)), text_cols=SLOTS, rules={"Orders": (0, 10**9, True)})
-    st.markdown("**Valid**")
-    ui.table(ui.search(valid, "sh_q_valid"), f"valid_{day:%Y%m%d}", "sh_t_valid", height=min(460, 38 + 35 * (len(valid) + 1)), text_cols=SLOTS)
+    ui.card(c1, "VALID couriers", f"{len(valid):,}", "", "good" if len(drop) == 0 else "neutral")
+    ui.card(c2, "INVALID couriers", f"{len(drop):,}", "", "bad" if len(drop) else "good", "Target 0")
+    st.markdown("**INVALID**")
+    ui.table(ui.search(drop, "sh_q_drop"), f"invalid_{day:%Y%m%d}", "sh_t_drop", height=min(460, 38 + 35 * (len(drop) + 1)), text_cols=SLOTS + ["Status"], rules={"Orders": (0, 10**9, True)})
+    st.markdown("**VALID**")
+    ui.table(ui.search(valid, "sh_q_valid"), f"valid_{day:%Y%m%d}", "sh_t_valid", height=min(460, 38 + 35 * (len(valid) + 1)), text_cols=SLOTS + ["Status"])
 
     ui.section("By courier")
     s = I.sched_days(d)
     g = s.groupby("courier_id").agg(Name=("name", "last"), City=("city", "last"), Supervisor=("supervisor", "last"), Scheduled_Days=("date", "count"),
                                     Worked=("attended", "sum"), Valid=("valid", "sum")).reset_index().rename(columns={"courier_id": "Courier ID"})
     g["Absent"] = g["Scheduled_Days"] - g["Worked"]
-    g["Dropped"] = g["Scheduled_Days"] - g["Valid"]
+    g["INVALID Days"] = g["Scheduled_Days"] - g["Valid"]
     g["Attendance %"] = g["Worked"] / g["Scheduled_Days"] * 100
     g["Valid %"] = g["Valid"] / g["Scheduled_Days"] * 100
     g = g.rename(columns={"Scheduled_Days": "Scheduled Days"}).sort_values(["Valid %", "Attendance %"])
-    if st.checkbox("Only couriers who dropped at least once", key="sh_bad"):
-        g = g[g["Dropped"] > 0]
+    if st.checkbox("Only couriers with INVALID days", key="sh_bad"):
+        g = g[g["INVALID Days"] > 0]
     ui.table(ui.search(g, "sh_q"), f"shifts_by_courier_{base}", "sh_t1", height=460)
 
     ui.section("Online hours per day")
