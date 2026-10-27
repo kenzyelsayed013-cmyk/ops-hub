@@ -1,8 +1,8 @@
 import streamlit as st
 from core import ui, insights as I
-from views import upload, overview, couriers, curve, shifts, cancels, actions, cities, rules
+from views import upload, overview, couriers, curve, shifts, cancels, actions, cities, rules, orders
 
-st.set_page_config(page_title="Ops Dashboard", page_icon="🛵", layout="wide")
+st.set_page_config(page_title="Ops Dashboard", page_icon="🛵", layout="wide", initial_sidebar_state="collapsed")
 ui.inject_css()
 I.load_rules()
 
@@ -35,6 +35,7 @@ pages = []
 if filters:
     pages = [
         st.Page(actions.render, title="Action Center", icon="🎯", url_path="actions", default=True),
+        st.Page(orders.render, title="Orders", icon="📦", url_path="orders"),
         st.Page(cities.render, title="Cities", icon="🏙️", url_path="cities"),
         st.Page(overview.render, title="Daily Report", icon="📊", url_path="daily"),
         st.Page(couriers.render, title="Couriers", icon="🏍️", url_path="couriers"),
@@ -47,4 +48,8 @@ if admin:
     pages.append(st.Page(upload.render, title="Upload (admin)", icon="📤", url_path="upload", default=not filters))
 if not pages:
     pages = [st.Page(_empty, title="Dashboard", url_path="home", default=True)]
-st.navigation(pages).run()
+try:
+    nav = st.navigation(pages, position="top")
+except TypeError:
+    nav = st.navigation(pages)
+nav.run()
