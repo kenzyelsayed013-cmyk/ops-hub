@@ -29,11 +29,17 @@ def render():
     ui.section("Key numbers")
     c = st.columns(6)
     ui.kpi(c[0], "On-time rate", tot.get("ontime_rate"), ptot.get("ontime_rate"), "{:.2%}", "rate", False, key="ontime_rate")
-    ui.kpi(c[1], "Cancelled % (accepted − delivered)", tot.get("cancel_rate_di"), ptot.get("cancel_rate_di"), "{:.2%}", "rate", True, key="cancel_rate_di")
+    ui.kpi(c[1], "Cancelled % (accepted − delivered)", tot.get("cancel_rate"), ptot.get("cancel_rate"), "{:.2%}", "rate", True, key="cancel_rate")
     _card(c[2], "Attendance (scheduled days)", "attendance", A["att"])
     _card(c[3], "Couriers completing all shifts", "valid_rate", A["valid"])
     ui.card(c[4], "Rejected by couriers", f"{rejc:,.0f}" if I.is_num(rejc) else "–", "", I.grade(rejc, 0, 0, False), "Target 0")
     ui.kpi(c[5], "Delivered orders", tot.get("delivered"), ptot.get("delivered"), "{:,.0f}", "num", False)
+
+    c = st.columns(6)
+    ui.kpi(c[0], "Accepted orders", tot.get("accepted"), ptot.get("accepted"), "{:,.0f}", "num", False)
+    ui.kpi(c[1], "Cancelled orders", tot.get("cancelled"), ptot.get("cancelled"), "{:,.0f}", "num", True)
+    ui.kpi(c[2], "Delivery Issue % (Keeta)", tot.get("cancel_rate_di"), ptot.get("cancel_rate_di"), "{:.2%}", "rate", True)
+    ui.kpi(c[3], "Delivery-Issue cancels (est.)", tot.get("di_cancels"), ptot.get("di_cancels"), "{:,.0f}", "num", True)
 
     if len(f["cities"]) > 1:
         ui.section("Cities")
