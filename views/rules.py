@@ -18,7 +18,7 @@ def render():
     extra = st.text_area("Mandatory dates (YYYY-MM-DD, one per line)", "\n".join(R["mandatory_dates"]), height=90)
     st.markdown("#### Targets (green line) and red line, in %")
     T, new_t = R["targets"], {}
-    for key, lab in [("ontime_rate", "On-time rate"), ("cancel_rate_di", "Cancellation rate"), ("attendance", "Attendance on scheduled days"), ("valid_rate", "Valid couriers")]:
+    for key, lab in [("ontime_rate", "On-time rate"), ("cancel_rate", "Cancelled % (accepted − delivered)"), ("attendance", "Attendance on scheduled days"), ("valid_rate", "Valid couriers")]:
         a, b, _ = st.columns([2, 1, 1])
         a.markdown(f"**{lab}**")
         g = b.number_input("Target", 0.0, 100.0, float(T[key][0]), 0.01, key=f"t_g_{key}", format="%.2f")
