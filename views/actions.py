@@ -19,10 +19,8 @@ def render():
     if co.empty and cd.empty:
         st.info("No data for this period.")
         return
-    daily = M.company_by_day(co) if not co.empty else pd.DataFrame()
-    tot = I.enrich(M.company_total(daily)) if not daily.empty else {}
-    cp = ui.get_company_prev()
-    ptot = I.enrich(M.company_total(M.company_by_day(cp))) if not cp.empty else {}
+    daily, tot = I.company_stats(co)
+    _, ptot = I.company_stats(ui.get_company_prev())
     s = M.courier_summary(cd) if not cd.empty else pd.DataFrame()
     A = I.attendance_stats(cd)
     rejc = cd["rejected_courier"].sum() if not cd.empty else np.nan
@@ -31,7 +29,7 @@ def render():
     ui.section("Key numbers")
     c = st.columns(6)
     ui.kpi(c[0], "On-time rate", tot.get("ontime_rate"), ptot.get("ontime_rate"), "{:.2%}", "rate", False, key="ontime_rate")
-    ui.kpi(c[1], "Cancellation rate", tot.get("cancel_rate_di"), ptot.get("cancel_rate_di"), "{:.2%}", "rate", True, key="cancel_rate_di")
+    ui.kpi(c[1], "Cancelled % (accepted − delivered)", tot.get("cancel_rate_di"), ptot.get("cancel_rate_di"), "{:.2%}", "rate", True, key="cancel_rate_di")
     _card(c[2], "Attendance (scheduled days)", "attendance", A["att"])
     _card(c[3], "Couriers completing all shifts", "valid_rate", A["valid"])
     ui.card(c[4], "Rejected by couriers", f"{rejc:,.0f}" if I.is_num(rejc) else "–", "", I.grade(rejc, 0, 0, False), "Target 0")
