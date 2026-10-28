@@ -52,36 +52,8 @@ header[data-testid="stHeader"] {background:transparent !important;}
 """
 
 
-
-_HIDE_JS = """<script>
-(function () {
-  var css = '[data-testid="manage-app-button"],[class*="viewerBadge"],[class*="ViewerBadge"],button[aria-label="Manage app"],[title="Manage app"]{display:none !important;}';
-  function run(w) {
-    try {
-      var d = w.document;
-      if (!d.getElementById("hide-manage")) { var s = d.createElement("style"); s.id = "hide-manage"; s.textContent = css; d.head.appendChild(s); }
-      d.querySelectorAll("button,a,div,span").forEach(function (el) {
-        if (el.children.length < 3 && (el.textContent || "").trim() === "Manage app") {
-          var n = el;
-          for (var i = 0; i < 6 && n; i++, n = n.parentElement) { if (getComputedStyle(n).position === "fixed") { n.style.display = "none"; return; } }
-          el.style.display = "none";
-        }
-      });
-    } catch (e) {}
-  }
-  function all() { var w = window; for (var i = 0; i < 5; i++) { run(w); if (w === w.parent) break; w = w.parent; } }
-  all(); setInterval(all, 800);
-})();
-</script>"""
-
-
 def inject_css():
     st.markdown(CSS, unsafe_allow_html=True)
-    try:
-        import streamlit.components.v1 as components
-        components.html(_HIDE_JS, height=0)
-    except Exception:
-        pass
     st.session_state["_reg"], st.session_state["_kpi"], st.session_state["_sec"] = [], [], ""
 
 
@@ -230,8 +202,6 @@ def export_row(df, name, key, title="", rules=None, first_row=False, text_cols=N
     with c2:
         if E.HAS_PDF:
             st.download_button("⬇ PDF", _data(lambda: E.pdf_bytes([blk], blk["title"], _subtitle())), file_name=f"{name}.pdf", key=key + "_p", mime="application/pdf")
-        else:
-            st.caption("PDF off: add reportlab to requirements.txt")
     c3.caption(f"{len(df):,} rows")
 
 
