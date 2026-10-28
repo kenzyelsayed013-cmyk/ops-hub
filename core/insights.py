@@ -9,11 +9,11 @@ from .config import SLOT_COLS, SLOTS
 # (good, bad, higher_is_better)
 TARGETS = {
     "ontime_rate": (0.996, 0.99, True),
-    "cancel_rate_di": (0.0019, 0.005, False),
+    "cancel_rate": (0.0019, 0.005, False),
     "attendance": (1.0, 0.95, True),     # scheduled courier-days where the courier actually worked
     "valid_rate": (1.0, 0.90, True),     # scheduled courier-days where every shift qualified
 }
-RATE_KEYS = {"ontime_rate", "cancel_rate_di", "attendance", "valid_rate", "completion_rate", "large_ontime_rate",
+RATE_KEYS = {"ontime_rate", "cancel_rate", "cancel_rate_di", "attendance", "valid_rate", "completion_rate", "large_ontime_rate",
              "large_cancel_rate", "over55_prop", "couriers_delivered_prop", "acceptance_5min"}
 COACH_BELOW = 97   # courier on-time % under this (with 30+ deliveries) = needs coaching
 
@@ -22,7 +22,7 @@ DEFAULT_RULES = {
     "min_orders_normal": 3, "min_orders_mandatory": 7, "mandatory_weekdays": [], "mandatory_dates": [],
     "mand_required": 6, "mand_total": 7, "min_days_month": 26,
     "require_all_shifts": True,
-    "targets": {"ontime_rate": [99.6, 99.0], "cancel_rate_di": [0.19, 0.5], "attendance": [100, 95], "valid_rate": [100, 90]},
+    "targets": {"ontime_rate": [99.6, 99.0], "cancel_rate": [0.19, 0.5], "attendance": [100, 95], "valid_rate": [100, 90]},
 }
 RULES = json.loads(json.dumps(DEFAULT_RULES))
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -30,8 +30,8 @@ WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 def _sync():
     for k, (g, b) in RULES["targets"].items():
-        TARGETS[k] = (g / 100, b / 100, k != "cancel_rate_di")
-    o, c, a, v = (RULES["targets"][k] for k in ("ontime_rate", "cancel_rate_di", "attendance", "valid_rate"))
+        TARGETS[k] = (g / 100, b / 100, k != "cancel_rate")
+    o, c, a, v = (RULES["targets"][k] for k in ("ontime_rate", "cancel_rate", "attendance", "valid_rate"))
     TABLE_RULES.update({"On-time %": (o[0], o[1], True), "Cancel %": (c[0], c[1], False), "Attendance %": (a[0], a[1], True),
                         "Valid %": (v[0], v[1], True), "Completed all %": (v[0], v[1], True), "Qualified shifts %": (v[0], v[1], True)})
 
@@ -41,6 +41,8 @@ def load_rules():
         saved = json.loads(RULES_FILE.read_text())
         for k, v in saved.items():
             if k == "targets":
+                if "cancel_rate_di" in v:
+                    v["cancel_rate"] = v.pop("cancel_rate_di")
                 RULES["targets"].update(v)
             else:
                 RULES[k] = v
@@ -215,7 +217,7 @@ def fix_daily(daily):
         return daily
     d = daily.copy()
     d["cancelled"] = (d["accepted"] - d["delivered"]).clip(lower=0)
-    d["cancel_rate_di"] = np.where(d["accepted"] > 0, d["cancelled"] / d["accepted"], np.nan)
+    d["cancel_rate"] = np.where(d["accepted"] > 0, d["cancelled"] / d["accepted"], np.nan)
     return d
 
 
@@ -227,7 +229,7 @@ def company_stats(co):
     tot = enrich(M.company_total(daily))
     acc, can = daily["accepted"].sum(), daily["cancelled"].sum()
     tot["cancelled"] = can
-    tot["cancel_rate_di"] = can / acc if acc else np.nan
+    tot["cancel_rate"] = can / acc if acc else np.nan
     return daily, tot
 
 
@@ -245,7 +247,8 @@ def city_table(co, cd, day=None):
         r = {"City": label}
         if a is not None and not a.empty:
             _, t = company_stats(a)
-            r.update({"Delivered": t["delivered"], "Cancelled": t["cancelled"], "On-time %": t["ontime_rate"] * 100, "Cancel %": t["cancel_rate_di"] * 100,
+            r.update({"Delivered": t["delivered"], "Cancelled": t["cancelled"], "On-time %": t["ontime_rate"] * 100, "Cancel %": t["cancel_rate"] * 100,
+                      "Delivery Issue %": t["cancel_rate_di"] * 100,
                       "Online Couriers / day": t["online"]})
         if b is not None and not b.empty:
             st_ = attendance_stats(b)
@@ -297,7 +300,7 @@ def build_actions(co, daily, tot, ptot, cd, s, n_days):
     tot, ptot = tot or {}, ptot or {}
 
     for k, lab, act in [("ontime_rate", "On-time rate", "Review worst days and late couriers below."),
-                        ("cancel_rate_di", "Cancellation rate", "Find the days and couriers with the most delivery-issue cancels.")]:
+                        ("cancel_rate", "Cancelled % (accepted - delivered)", "Find the days and couriers with the most delivery-issue cancels.")]:
         v = tot.get(k)
         st_ = status(k, v)
         if st_ != "neutral":
@@ -342,7 +345,7 @@ def build_actions(co, daily, tot, ptot, cd, s, n_days):
     ct = city_table(co, cd)
     if len(ct) > 2:
         c = ct.iloc[1:]
-        for col, key, hb in [("On-time %", "ontime_rate", True), ("Cancel %", "cancel_rate_di", False),
+        for col, key, hb in [("On-time %", "ontime_rate", True), ("Cancel %", "cancel_rate", False),
                              ("Attendance %", "attendance", True), ("Valid %", "valid_rate", True)]:
             if col in c.columns and c[col].notna().any():
                 r = c.loc[c[col].idxmin() if hb else c[col].idxmax()]
