@@ -5,7 +5,7 @@ from core import ui, metrics as M, insights as I
 CARDS = [
     [("delivered", "Delivered orders", "{:,.0f}", "num", False), ("assigned", "Assigned tasks", "{:,.0f}", "num", False),
      ("accepted", "Accepted tasks", "{:,.0f}", "num", False), ("completion_rate", "Completion rate", "{:.2%}", "rate", False),
-     ("cancel_rate_di", "Cancellation rate", "{:.2%}", "rate", True), ("ontime_rate", "On-time rate", "{:.2%}", "rate", False)],
+     ("cancel_rate_di", "Cancelled % (accepted − delivered)", "{:.2%}", "rate", True), ("ontime_rate", "On-time rate", "{:.2%}", "rate", False)],
     [("avg_delivery_min", "Avg delivery time (min)", "{:.1f}", "num", True), ("over55_prop", "Orders over 55 min", "{:.2%}", "rate", True),
      ("overdue", "Overdue tasks", "{:,.0f}", "num", True), ("severe_overdue", "Severely overdue", "{:,.0f}", "num", True),
      ("large_orders", "Large orders completed", "{:,.0f}", "num", False), ("large_ontime_rate", "Large-order on-time", "{:.2%}", "rate", False)],
@@ -54,10 +54,8 @@ def render():
     if co.empty:
         st.info("No company data for this period.")
         return
-    daily = M.company_by_day(co)
-    tot = I.enrich(M.company_total(daily))
-    cp = ui.get_company_prev()
-    ptot = I.enrich(M.company_total(M.company_by_day(cp))) if not cp.empty else {}
+    daily, tot = I.company_stats(co)
+    _, ptot = I.company_stats(ui.get_company_prev())
     ui.legend()
 
     ui.section("Headline numbers", "arrow = change vs the previous period of the same length, green = better, red = worse")
@@ -73,11 +71,11 @@ def render():
     d = asc.sort_values("date", ascending=False)
     t = pd.DataFrame({
         "Date": d["date"].dt.strftime("%Y-%m-%d"), "Day": d["date"].dt.strftime("%a"), "Assigned": d["assigned"],
-        "Delivered": d["delivered"], "Delivered vs prev day %": d["chg"], "Completion %": d["completion_rate"] * 100,
+        "Delivered": d["delivered"], "Cancelled": d["cancelled"], "Delivered vs prev day %": d["chg"], "Completion %": d["completion_rate"] * 100,
         "On-time %": d["ontime_rate"] * 100, "Avg Delivery (min)": d["avg_delivery_min"], "Over 55 min %": d["over55_prop"] * 100,
         "Cancel %": d["cancel_rate_di"] * 100, "Rejected (Courier)": d["rejected_courier"], "Overdue": d["overdue"],
         "Severely Overdue": d["severe_overdue"], "Online Couriers": d["online"]})
-    top = {"Date": "PERIOD", "Day": "total / avg", "Assigned": tot["assigned"], "Delivered": tot["delivered"],
+    top = {"Date": "PERIOD", "Day": "total / avg", "Assigned": tot["assigned"], "Delivered": tot["delivered"], "Cancelled": tot["cancelled"],
            "Delivered vs prev day %": None, "Completion %": tot["completion_rate"] * 100, "On-time %": tot["ontime_rate"] * 100,
            "Avg Delivery (min)": tot["avg_delivery_min"], "Over 55 min %": tot["over55_prop"] * 100,
            "Cancel %": tot["cancel_rate_di"] * 100, "Rejected (Courier)": tot["rejected_courier"], "Overdue": tot["overdue"],
@@ -113,7 +111,7 @@ def render():
     ui.section("By courier type")
     rows = []
     for ct, g in co.groupby("courier_type"):
-        tt = M.company_total(M.company_by_day(g))
+        _, tt = I.company_stats(g)
         rows.append({"Courier Type": ct, "Assigned": tt["assigned"], "Delivered": tt["delivered"], "Rejected": tt["rejected"],
                      "On-time %": tt["ontime_rate"] * 100, "Avg Delivery (min)": tt["avg_delivery_min"],
                      "Cancel %": tt["cancel_rate_di"] * 100, "Online Couriers (avg/day)": tt["online"], "Overdue": tt["overdue"]})
