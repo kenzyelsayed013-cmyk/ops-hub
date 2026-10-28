@@ -20,7 +20,7 @@ COACH_BELOW = 97   # courier on-time % under this (with 30+ deliveries) = needs 
 RULES_FILE = Path(__file__).resolve().parent.parent / "rules.json"
 DEFAULT_RULES = {
     "min_orders_normal": 3, "min_orders_mandatory": 7, "mandatory_weekdays": [], "mandatory_dates": [],
-    "mand_required": 6, "mand_total": 7, "min_days_month": 26,
+    "mand_required": 6, "mand_total": 7, "min_days_month": 26, "di_total": "average",
     "require_all_shifts": True,
     "targets": {"ontime_rate": [99.6, 99.0], "cancel_rate": [0.19, 0.5], "attendance": [100, 95], "valid_rate": [100, 90]},
 }
@@ -210,6 +210,19 @@ def mandatory_between(d1, d2):
     return [d for d in pd.date_range(d1, d2) if d.dayofweek in R["mandatory_weekdays"] or d.strftime("%Y-%m-%d") in R["mandatory_dates"]]
 
 
+def di_avg(df, rate_col="cancel_rate_di", w_col="accepted"):
+    """Delivery Issue rate for a group of rows. Each row's rate is Keeta's own rate, untouched.
+    Period figure = plain average of those rates (default), or weighted by volume if RULES['di_total'] == 'weighted'."""
+    if df is None or len(df) == 0:
+        return np.nan
+    x = pd.to_numeric(df[rate_col], errors="coerce")
+    if RULES.get("di_total", "average") == "weighted":
+        w = pd.to_numeric(df[w_col], errors="coerce").fillna(0)
+        m = x.notna() & (w > 0)
+        return float((x[m] * w[m]).sum() / w[m].sum()) if m.any() else np.nan
+    return float(x.mean()) if x.notna().any() else np.nan
+
+
 # ---------------------------------------------------------------- cancel = accepted - delivered
 def fix_daily(daily):
     """Cancelled = accepted - delivered (never below 0 per day). cancel_rate_di is overwritten with this definition."""
@@ -230,6 +243,7 @@ def company_stats(co):
     acc, can = daily["accepted"].sum(), daily["cancelled"].sum()
     tot["cancelled"] = can
     tot["cancel_rate"] = can / acc if acc else np.nan
+    tot["cancel_rate_di"] = di_avg(daily, "cancel_rate_di", "assigned")
     return daily, tot
 
 
