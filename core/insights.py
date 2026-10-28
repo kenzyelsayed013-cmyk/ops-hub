@@ -208,6 +208,29 @@ def mandatory_between(d1, d2):
     return [d for d in pd.date_range(d1, d2) if d.dayofweek in R["mandatory_weekdays"] or d.strftime("%Y-%m-%d") in R["mandatory_dates"]]
 
 
+# ---------------------------------------------------------------- cancel = accepted - delivered
+def fix_daily(daily):
+    """Cancelled = accepted - delivered (never below 0 per day). cancel_rate_di is overwritten with this definition."""
+    if daily is None or daily.empty:
+        return daily
+    d = daily.copy()
+    d["cancelled"] = (d["accepted"] - d["delivered"]).clip(lower=0)
+    d["cancel_rate_di"] = np.where(d["accepted"] > 0, d["cancelled"] / d["accepted"], np.nan)
+    return d
+
+
+def company_stats(co):
+    """(daily, totals) from a company-file frame, using the accepted - delivered cancel definition."""
+    if co is None or co.empty:
+        return pd.DataFrame(), {}
+    daily = fix_daily(M.company_by_day(co))
+    tot = enrich(M.company_total(daily))
+    acc, can = daily["accepted"].sum(), daily["cancelled"].sum()
+    tot["cancelled"] = can
+    tot["cancel_rate_di"] = can / acc if acc else np.nan
+    return daily, tot
+
+
 # ---------------------------------------------------------------- cities
 def city_table(co, cd, day=None):
     if day is not None:
@@ -221,15 +244,16 @@ def city_table(co, cd, day=None):
     def one(label, a, b):
         r = {"City": label}
         if a is not None and not a.empty:
-            t = M.company_total(M.company_by_day(a))
-            r.update({"Delivered": t["delivered"], "On-time %": t["ontime_rate"] * 100, "Cancel %": t["cancel_rate_di"] * 100,
+            _, t = company_stats(a)
+            r.update({"Delivered": t["delivered"], "Cancelled": t["cancelled"], "On-time %": t["ontime_rate"] * 100, "Cancel %": t["cancel_rate_di"] * 100,
                       "Online Couriers / day": t["online"]})
         if b is not None and not b.empty:
             st_ = attendance_stats(b)
             s = sched_days(b)
             r.update({"Scheduled Courier-days": st_["n"], "Attendance %": st_["att"] * 100 if st_["n"] else np.nan,
                       "Valid %": st_["valid"] * 100 if st_["n"] else np.nan,
-                      "Valid Couriers": int(s["valid"].sum()) if len(s) else 0, "INVALID": int((~s["valid"]).sum()) if len(s) else 0,
+                      "VALID Courier-days": int(s["valid"].sum()) if len(s) else 0, "INVALID Courier-days": int((~s["valid"]).sum()) if len(s) else 0,
+                      "Couriers with INVALID day": int(s.loc[~s["valid"], "courier_id"].nunique()) if len(s) else 0,
                       "Courier Rejects": b["rejected_courier"].sum()})
         return r
     rows = [one("ALL CITIES", co, cd)]
