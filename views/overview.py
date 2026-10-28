@@ -32,6 +32,8 @@ WORD = {"good": "✔ On target", "warn": "⚠ Watch", "bad": "✖ Act now", "neu
 
 
 def _basis(k, how):
+    if k == "cancel_rate_di":
+        return "Average of daily rates" if I.RULES.get("di_total", "average") == "average" else "Weighted by Assigned"
     return {"sum": "Sum", "avg": "Avg / day", "calc": "Delivering ÷ Registered", "cn": "Cancelled ÷ Accepted"}.get(how, "Weighted by " + W.get(M.WEIGHT.get(k, ""), "—"))
 
 
@@ -43,7 +45,7 @@ def _wk(daily):
         rows.append({"Weekday": g["date"].iloc[0].strftime("%A"), "Days": len(g), "Avg Delivered / Day": g["delivered"].mean(),
                      "On-time %": M._wavg(g, "ontime_rate", "delivered") * 100,
                      "Avg Delivery (min)": M._wavg(g, "avg_delivery_min", "delivered"),
-                     "Cancel %": M._wavg(g, "cancel_rate", "accepted") * 100, "Delivery Issue %": M._wavg(g, "cancel_rate_di", "assigned") * 100,
+                     "Cancel %": M._wavg(g, "cancel_rate", "accepted") * 100, "Delivery Issue %": I.di_avg(g, "cancel_rate_di", "assigned") * 100,
                      "Avg Overdue / Day": (g["overdue"] + g["severe_overdue"]).mean(), "Avg Online Couriers": g["online"].mean()})
     return pd.DataFrame(rows)
 
