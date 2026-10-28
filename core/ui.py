@@ -1,12 +1,13 @@
 """Shared UI: filters, status cards, colour-highlighted tables, Excel export. Numbers only, no charts."""
 import hashlib
+import re
 import html
 import io
 from datetime import timedelta
 import numpy as np
 import pandas as pd
 import streamlit as st
-from . import db, metrics as M, insights as I
+from . import db, metrics as M, insights as I, export as E
 
 pd.set_option("styler.render.max_elements", 5_000_000)
 
@@ -53,6 +54,7 @@ header[data-testid="stHeader"] {background:transparent !important;}
 
 def inject_css():
     st.markdown(CSS, unsafe_allow_html=True)
+    st.session_state["_reg"], st.session_state["_kpi"], st.session_state["_sec"] = [], [], ""
 
 
 def topbar(title, f, days=None):
@@ -68,6 +70,7 @@ def legend():
 
 
 def section(title, note=""):
+    st.session_state["_sec"] = title
     st.markdown(f'<div class="sec">{html.escape(title)}</div>', unsafe_allow_html=True)
 
 
@@ -87,6 +90,7 @@ def delta_txt(cur, prev, kind):
 
 
 def card(col, label, value, sub="", status="neutral", hint="", subcls=""):
+    st.session_state.setdefault("_kpi", []).append({"Section": st.session_state.get("_sec", ""), "Metric": re.sub("<[^>]+>", "", str(label)), "Value": re.sub("<[^>]+>", "", str(value)), "Change": str(sub), "Target": str(hint)})
     tag = f'<span class="tag {status}">{I.TAGS[status]}</span>' if status in I.TAGS else ""
     col.markdown(f'<div class="kc {status}"><div class="kl"><span>{label}</span>{tag}</div><div class="kv">{value}</div>'
                  f'<div class="kd {subcls}">{sub}</div><div class="kh">{hint}</div></div>', unsafe_allow_html=True)
@@ -175,15 +179,54 @@ def styled(df, rules=None, first_row=False, text_cols=None):
     return sty
 
 
+_DEFER = "callable" in (st.download_button.__doc__ or "")
+_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _data(fn):
+    return fn if _DEFER else fn()
+
+
+def _subtitle():
+    f = filters()
+    return f"{f['platform']}  ·  {f['city']}  ·  {f['d1']:%d %b %Y} → {f['d2']:%d %b %Y}" if f else ""
+
+
+def export_row(df, name, key, title="", rules=None, first_row=False, text_cols=None, tone=None):
+    """Excel + PDF buttons for one table (also registered for the whole-page export)."""
+    blk = dict(title=title or st.session_state.get("_sec") or name, df=df, rules=rules, first_row=first_row, text_cols=text_cols, tone=tone)
+    st.session_state.setdefault("_reg", []).append(blk)
+    c1, c2, c3 = st.columns([1, 1, 5], gap="small")
+    with c1:
+        st.download_button("⬇ Excel", _data(lambda: E.xlsx_bytes([blk])), file_name=f"{name}.xlsx", key=key + "_x", mime=_XLSX)
+    with c2:
+        if E.HAS_PDF:
+            st.download_button("⬇ PDF", _data(lambda: E.pdf_bytes([blk], blk["title"], _subtitle())), file_name=f"{name}.pdf", key=key + "_p", mime="application/pdf")
+    c3.caption(f"{len(df):,} rows")
+
+
+def page_export():
+    """Whole-page Excel / PDF in the sidebar (every table + the key numbers of the current page)."""
+    reg, kp = st.session_state.get("_reg", []), st.session_state.get("_kpi", [])
+    f = filters()
+    if not f or not (reg or kp):
+        return
+    blocks = ([dict(title="Key numbers", df=pd.DataFrame(kp))] if kp else []) + reg
+    name = f"report_{f['platform']}_{f['d1']:%Y%m%d}_{f['d2']:%Y%m%d}"
+    with st.sidebar:
+        st.markdown("### Export this page")
+        st.download_button("⬇ All tables, Excel", _data(lambda: E.xlsx_bytes(blocks)), file_name=f"{name}.xlsx", key="pg_x", mime=_XLSX, use_container_width=True)
+        if E.HAS_PDF:
+            st.download_button("⬇ All tables, PDF", _data(lambda: E.pdf_bytes(blocks, "Ops report", _subtitle())), file_name=f"{name}.pdf", key="pg_p",
+                               mime="application/pdf", use_container_width=True)
+        else:
+            st.caption("PDF is off: add reportlab to requirements.txt")
+
+
 def table(df, name, key, height=None, export=True, rules=None, first_row=False, text_cols=None):
     h = height or min(740, 38 + 35 * (len(df) + 1))
     st.dataframe(styled(df, rules, first_row, text_cols), width="stretch", hide_index=True, height=h)
-    if export:
-        c1, c2 = st.columns([1, 5])
-        with c1:
-            download("Export to Excel", rnd(df), name, key)
-        with c2:
-            st.caption(f"{len(df):,} rows")
+    export_row(df, name, key, rules=rules, first_row=first_row, text_cols=text_cols)
 
 
 def search(df, key, cols=("Courier ID", "Name")):
@@ -218,6 +261,47 @@ def is_admin():
 
 
 # ---------------------------------------------------------------- global filters (sidebar)
+import json
+from pathlib import Path
+
+ALIAS_FILE = Path(__file__).resolve().parent.parent / "city_alias.json"
+
+
+def alias():
+    try:
+        a = json.loads(ALIAS_FILE.read_text())
+    except Exception:
+        a = {}
+    return {"rename": a.get("rename", {}), "hidden": a.get("hidden", [])}
+
+
+def save_alias(rename, hidden):
+    ALIAS_FILE.write_text(json.dumps({"rename": rename, "hidden": hidden}, ensure_ascii=False, indent=1))
+
+
+def meta():
+    """db.meta() with city renames and hidden cities applied. `real` keeps the stored name."""
+    m = db.meta()
+    if m.empty:
+        return m
+    A = alias()
+    m = m[~m["city"].isin(A["hidden"])].copy()
+    m["real"] = m["city"]
+    m["city"] = m["city"].map(lambda c: A["rename"].get(c) or c)
+    return m
+
+
+def disp_names(names):
+    A = alias()
+    return sorted({A["rename"].get(c) or c for c in names if c not in A["hidden"]})
+
+
+def real_city(platform, display):
+    m = meta()
+    r = m[(m["platform"] == platform) & (m["city"] == display)]["real"].unique() if not m.empty else []
+    return r[0] if len(r) else display
+
+
 PRESETS = {"7 days": 7, "14 days": 14, "30 days": 30, "All": None, "Custom": 0}
 
 
@@ -232,10 +316,13 @@ def _dates(v):
 
 def _load(kind, platform, cities, d1, d2):
     fr = []
+    m = meta()
     for c in cities:
-        x = db.load(kind, platform, c, d1, d2)
-        if not x.empty:
-            fr.append(x.assign(city=c))
+        reals = m[(m["platform"] == platform) & (m["city"] == c)]["real"].unique() if not m.empty else [c]
+        for r in (reals if len(reals) else [c]):
+            x = db.load(kind, platform, r, d1, d2)
+            if not x.empty:
+                fr.append(x.assign(city=c))
     return pd.concat(fr, ignore_index=True) if fr else pd.DataFrame()
 
 
@@ -253,7 +340,7 @@ def _seg(label, opts, default, key):
 
 def render_filters():
     """Filters live in the sidebar. Cities and period are buttons, not dropdowns."""
-    m = db.meta()
+    m = meta()
     if m.empty:
         return None
     with st.sidebar:
