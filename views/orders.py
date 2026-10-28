@@ -60,10 +60,7 @@ def render():
     sty = sty.apply(lambda r: ["font-weight:800;background-color:#14181F;color:#fff"] * len(r) if r.name == 0 else [""] * len(r), axis=1)
     sty = sty.apply(lambda _: tone.loc[shown.index, shown.columns], axis=None)
     st.dataframe(sty, width="stretch", hide_index=True, height=min(760, 38 + 35 * (len(shown) + 1)))
-    c1, c2 = st.columns([1, 5])
-    with c1:
-        ui.download("Export to Excel", out, f"orders_by_courier_{f['platform']}_{f['city']}", "od_x")
-    c2.caption(f"{len(out) - 1:,} couriers")
+    ui.export_row(out, f"orders_by_courier_{f['platform']}_{f['city']}", "od_x", title="Orders per courier, day by day", first_row=True, tone=tone)
 
     full = pd.date_range(min(dates), max(dates))
     ui.section("Orders curve, all couriers")
