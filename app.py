@@ -1,6 +1,6 @@
 import streamlit as st
 from core import ui, insights as I
-from views import upload, overview, couriers, curve, shifts, cancels, actions, cities, rules, orders, monthly
+from views import upload, overview, couriers, curve, shifts, cancels, actions, cities, rules, orders, monthly, citymgr
 
 st.set_page_config(page_title="Ops Dashboard", page_icon="🛵", layout="wide", initial_sidebar_state="expanded")
 ui.inject_css()
@@ -43,5 +43,7 @@ SPECS = [(actions.render, "Action Center", "🎯", "actions", True), (orders.ren
 pages = [st.Page(fn if filters else _nodata, title=t, icon=i, url_path=u, default=d) for fn, t, i, u, d in SPECS]
 if admin:
     pages.append(st.Page(rules.render, title="Rules (admin)", icon="⚙️", url_path="rules"))
+    pages.append(st.Page(citymgr.render, title="Cities (admin)", icon="🗺️", url_path="citymgr"))
     pages.append(st.Page(upload.render, title="Upload (admin)", icon="📤", url_path="upload"))
 st.navigation(pages).run()
+ui.page_export()
