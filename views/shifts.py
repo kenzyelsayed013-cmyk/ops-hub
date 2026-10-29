@@ -28,9 +28,9 @@ def render():
     ui.section("Day by day")
     t = pd.DataFrame({"Date": vd["date"].dt.strftime("%Y-%m-%d"), "Day": vd["date"].dt.strftime("%a") + vd["Mand"].map({True: " ★", False: ""}), "Scheduled": vd["Scheduled"],
                       "Worked": vd["Attended"], "Absent": vd["Absent"], "Attendance %": vd["Attendance %"],
-                      "Valid": vd["Valid"], "INVALID": vd["Dropped"], "Missed shifts": vd["ShiftFail"], "Low orders": vd["OrderFail"], "Valid %": vd["Valid %"], "Qualified shifts %": vd["Qualified shifts %"]})
+                      "Valid": vd["Valid"], "INVALID (shifts)": vd["ShiftFail"], "INVALID (orders)": vd["OrderFail"], "INVALID (total)": vd["Dropped"], "Valid %": vd["Valid %"], "Qualified shifts %": vd["Qualified shifts %"]})
     tt = {"Date": "PERIOD", "Day": "total", "Scheduled": vd["Scheduled"].sum(), "Worked": vd["Attended"].sum(), "Absent": vd["Absent"].sum(),
-          "Attendance %": A["att"] * 100, "Valid": vd["Valid"].sum(), "INVALID": vd["Dropped"].sum(), "Missed shifts": vd["ShiftFail"].sum(), "Low orders": vd["OrderFail"].sum(), "Valid %": A["valid"] * 100,
+          "Attendance %": A["att"] * 100, "Valid": vd["Valid"].sum(), "INVALID (shifts)": vd["ShiftFail"].sum(), "INVALID (orders)": vd["OrderFail"].sum(), "INVALID (total)": vd["Dropped"].sum(), "Valid %": A["valid"] * 100,
           "Qualified shifts %": A["qual"] * 100}
     ui.table(pd.concat([pd.DataFrame([tt]), t], ignore_index=True), f"shift_days_{base}", "sh_day", first_row=True,
              height=min(600, 38 + 35 * (len(t) + 2)))
@@ -39,14 +39,19 @@ def render():
     days = list(vd["date"])
     day = st.selectbox("Day", days, format_func=lambda x: f"{x:%a %d %b %Y}", key="sh_pick")
     st.caption(I.rule_sentence() + "  ★ = mandatory day")
-    valid, drop = I.day_lists(d, day)
-    c1, c2 = st.columns(2)
-    ui.card(c1, "VALID couriers", f"{len(valid):,}", "", "good" if len(drop) == 0 else "neutral")
-    ui.card(c2, "INVALID couriers", f"{len(drop):,}", "", "bad" if len(drop) else "good", "Target 0")
-    st.markdown("**INVALID**")
-    ui.table(ui.search(drop, "sh_q_drop"), f"invalid_{day:%Y%m%d}", "sh_t_drop", height=min(460, 38 + 35 * (len(drop) + 1)), text_cols=SLOTS + ["Status"], rules={"Orders": (0, 10**9, True)})
+    valid, bad_s, bad_o = I.day_lists3(d, day)
+    n_inv = len(set(bad_s["Courier ID"]) | set(bad_o["Courier ID"]))
+    c1, c2, c3, c4 = st.columns(4)
+    ui.card(c1, "VALID couriers", f"{len(valid):,}", "", "good" if n_inv == 0 else "neutral")
+    ui.card(c2, "INVALID (shifts)", f"{len(bad_s):,}", "missed shifts", "bad" if len(bad_s) else "good", "Target 0")
+    ui.card(c3, "INVALID (orders)", f"{len(bad_o):,}", "below minimum orders", "bad" if len(bad_o) else "good", "Target 0")
+    ui.card(c4, "INVALID total", f"{n_inv:,}", "either reason", "bad" if n_inv else "good", "Target 0")
+    st.markdown("**INVALID because of shifts**")
+    ui.table(ui.search(bad_s, "sh_q_bs"), f"invalid_shifts_{day:%Y%m%d}", "sh_t_bs", height=min(420, 38 + 35 * (len(bad_s) + 1)), text_cols=SLOTS + ["Status"])
+    st.markdown("**INVALID because of orders**")
+    ui.table(ui.search(bad_o, "sh_q_bo"), f"invalid_orders_{day:%Y%m%d}", "sh_t_bo", height=min(420, 38 + 35 * (len(bad_o) + 1)), text_cols=["Status"])
     st.markdown("**VALID**")
-    ui.table(ui.search(valid, "sh_q_valid"), f"valid_{day:%Y%m%d}", "sh_t_valid", height=min(460, 38 + 35 * (len(valid) + 1)), text_cols=SLOTS + ["Status"])
+    ui.table(ui.search(valid, "sh_q_valid"), f"valid_{day:%Y%m%d}", "sh_t_valid", height=min(420, 38 + 35 * (len(valid) + 1)), text_cols=["Status"])
 
     ns = d[(d["date"] == pd.Timestamp(day)) & (d["shifts_scheduled"] == 0) & ((d["delivered"] > 0) | (d["valid_hrs"] > 0))]
     if not ns.empty:
@@ -58,9 +63,11 @@ def render():
     ui.section("By courier")
     s = I.sched_days(d)
     g = s.groupby("courier_id").agg(Name=("name", "last"), City=("city", "last"), Supervisor=("supervisor", "last"), Scheduled_Days=("date", "count"),
-                                    Worked=("attended", "sum"), Valid=("valid", "sum")).reset_index().rename(columns={"courier_id": "Courier ID"})
+                                    Worked=("attended", "sum"), Valid=("valid", "sum"),
+                                    BadS=("shifts_ok", lambda x: int((~x).sum())), BadO=("orders_ok", lambda x: int((~x).sum()))).reset_index().rename(columns={"courier_id": "Courier ID"})
     g["Absent"] = g["Scheduled_Days"] - g["Worked"]
     g["INVALID Days"] = g["Scheduled_Days"] - g["Valid"]
+    g = g.rename(columns={"BadS": "INVALID Days (shifts)", "BadO": "INVALID Days (orders)"})
     g["Attendance %"] = g["Worked"] / g["Scheduled_Days"] * 100
     g["Valid %"] = g["Valid"] / g["Scheduled_Days"] * 100
     g = g.rename(columns={"Scheduled_Days": "Scheduled Days"}).sort_values(["Valid %", "Attendance %"])
