@@ -9,7 +9,7 @@ from .config import SLOT_COLS, SLOTS
 # (good, bad, higher_is_better)
 TARGETS = {
     "ontime_rate": (0.996, 0.99, True),
-    "cancel_rate": (0.0019, 0.005, False),
+    "cancel_rate_di": (0.0019, 0.005, False),   # Keeta Delivery Issue rate
     "attendance": (1.0, 0.95, True),     # scheduled courier-days where the courier actually worked
     "valid_rate": (1.0, 0.90, True),     # scheduled courier-days where every shift qualified
 }
@@ -23,7 +23,7 @@ DEFAULT_RULES = {
     "mand_required": 6, "mand_total": 7, "min_days_month": 26, "di_total": "average",
     "month_orders_default": 380, "month_orders_city": {},
     "require_all_shifts": True,
-    "targets": {"ontime_rate": [99.6, 99.0], "cancel_rate": [0.19, 0.5], "attendance": [100, 95], "valid_rate": [100, 90]},
+    "targets": {"ontime_rate": [99.6, 99.0], "cancel_rate_di": [0.19, 0.5], "attendance": [100, 95], "valid_rate": [100, 90]},
 }
 RULES = json.loads(json.dumps(DEFAULT_RULES))
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -31,9 +31,9 @@ WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 def _sync():
     for k, (g, b) in RULES["targets"].items():
-        TARGETS[k] = (g / 100, b / 100, k != "cancel_rate")
-    o, c, a, v = (RULES["targets"][k] for k in ("ontime_rate", "cancel_rate", "attendance", "valid_rate"))
-    TABLE_RULES.update({"On-time %": (o[0], o[1], True), "Cancel %": (c[0], c[1], False), "Attendance %": (a[0], a[1], True),
+        TARGETS[k] = (g / 100, b / 100, k != "cancel_rate_di")
+    o, c, a, v = (RULES["targets"][k] for k in ("ontime_rate", "cancel_rate_di", "attendance", "valid_rate"))
+    TABLE_RULES.update({"On-time %": (o[0], o[1], True), "Delivery Issue %": (c[0], c[1], False), "Attendance %": (a[0], a[1], True),
                         "Valid %": (v[0], v[1], True), "Completed all %": (v[0], v[1], True), "Qualified shifts %": (v[0], v[1], True)})
 
 
@@ -42,8 +42,8 @@ def load_rules():
         saved = json.loads(RULES_FILE.read_text())
         for k, v in saved.items():
             if k == "targets":
-                if "cancel_rate_di" in v:
-                    v["cancel_rate"] = v.pop("cancel_rate_di")
+                if "cancel_rate" in v:
+                    v["cancel_rate_di"] = v.pop("cancel_rate")
                 RULES["targets"].update(v)
             else:
                 RULES[k] = v
@@ -69,13 +69,14 @@ def rule_sentence():
             f"Monthly: attend {R['mand_required']} of {R['mand_total']} mandatory days, at least {R['min_days_month']} days, and the monthly orders of his city (default {R['month_orders_default']}).")
 
 TABLE_RULES = {
-    "On-time %": (99.6, 99, True), "Cancel %": (0.19, 0.5, False),
+    "On-time %": (99.6, 99, True), "Delivery Issue %": (0.19, 0.5, False),
     "Rejected (Courier)": (0, 0, False), "Courier Rejects": (0, 0, False),
     "Attendance %": (100, 95, True), "Valid %": (100, 90, True),
     "Completed all %": (100, 90, True), "Qualified shifts %": (100, 90, True),
     "Days Not Completed": (0, 2, False), "INVALID (shifts)": (0, 0, False), "INVALID (orders)": (0, 0, False),
     "INVALID Days (shifts)": (0, 0, False), "INVALID Days (orders)": (0, 0, False), "INVALID": (0, 0, False), "INVALID Days": (0, 0, False), "Missed Mandatory": (0, 1, False), "Absent": (0, 0, False),
     "Delivered vs prev day %": (0, -10, True),
+    "Below Min %": (0, 10, False), "Days Below Min %": (0, 30, False), "Current Streak": (0, 2, False), "Short By": (0, 2, False),
 }
 TAGS = {"good": "ON TARGET", "warn": "WATCH", "bad": "ACT NOW"}
 SEG_ORDER = ["Star", "Solid", "Low efficiency", "Needs coaching", "Idle (0 deliveries)"]
@@ -310,6 +311,29 @@ def month_orders(d, last, left, keep_all=False):
     return g
 
 
+STAGES = [("assigned", "Assigned"), ("accepted", "Accepted"), ("arrivals", "Arrived at restaurant"), ("picked", "Picked up"), ("delivered", "Delivered")]
+
+
+def funnel(t):
+    """Stage table from company totals: where orders are lost."""
+    rows, prev, first = [], None, t["assigned"]
+    for k, lab in STAGES:
+        v = t[k]
+        lost = (prev - v) if prev is not None else np.nan
+        rows.append({"Stage": lab, "Orders": v, "Lost vs previous stage": lost,
+                     "Lost %": (lost / prev * 100) if prev else np.nan, "Remaining % of assigned": v / first * 100 if first else np.nan})
+        prev = v
+    return pd.DataFrame(rows)
+
+
+def funnel_row(label, t):
+    return {"Assigned": t["assigned"], "Not accepted": t["assigned"] - t["accepted"], "Accepted": t["accepted"],
+            "Lost before restaurant": t["accepted"] - t["arrivals"], "Arrived": t["arrivals"],
+            "Lost before pickup": t["arrivals"] - t["picked"], "Picked": t["picked"],
+            "Lost before delivery": t["picked"] - t["delivered"], "Delivered": t["delivered"],
+            "Total lost": t["assigned"] - t["delivered"],
+            "Lost %": (t["assigned"] - t["delivered"]) / t["assigned"] * 100 if t["assigned"] else np.nan, **label}
+
 # ---------------------------------------------------------------- cities
 def city_table(co, cd, day=None):
     if day is not None:
@@ -379,7 +403,7 @@ def build_actions(co, daily, tot, ptot, cd, s, n_days):
     tot, ptot = tot or {}, ptot or {}
 
     for k, lab, act in [("ontime_rate", "On-time rate", "Review worst days and late couriers below."),
-                        ("cancel_rate", "Cancelled % (accepted - delivered)", "Find the days and couriers with the most delivery-issue cancels.")]:
+                        ("cancel_rate_di", "Delivery Issue %", "Find the days and couriers with the most delivery-issue cancels.")]:
         v = tot.get(k)
         st_ = status(k, v)
         if st_ != "neutral":
@@ -424,7 +448,7 @@ def build_actions(co, daily, tot, ptot, cd, s, n_days):
     ct = city_table(co, cd)
     if len(ct) > 2:
         c = ct.iloc[1:]
-        for col, key, hb in [("On-time %", "ontime_rate", True), ("Cancel %", "cancel_rate", False),
+        for col, key, hb in [("On-time %", "ontime_rate", True), ("Delivery Issue %", "cancel_rate_di", False),
                              ("Attendance %", "attendance", True), ("Valid %", "valid_rate", True)]:
             if col in c.columns and c[col].notna().any():
                 r = c.loc[c[col].idxmin() if hb else c[col].idxmax()]
