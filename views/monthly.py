@@ -53,22 +53,31 @@ def render():
         return f"⚠ Needs {req - w} in {left} days"
     base["Mandatory Rule"] = base.apply(mrule, axis=1)
     base["Month Rule"] = base.apply(drule, axis=1)
-    base["Overall"] = base.apply(lambda r: "✖ FAILED" if "✖" in r["Mandatory Rule"] + r["Month Rule"] else
-                                 ("⚠ At risk" if "⚠" in r["Mandatory Rule"] + r["Month Rule"] else "✔ OK"), axis=1)
+    pc = I.month_orders(d, last, left, keep_all=True).set_index("Courier ID")
+    for col, dflt in [("Orders", 0), ("Target", None), ("Avg / Working Day", None), ("Needed / Day", None), ("Orders Rule", "–"), ("Pace", "–")]:
+        base[col] = pc[col].reindex(base.index)
+        if dflt is not None:
+            base[col] = base[col].fillna(dflt)
+    base["Orders"] = base["Orders"].astype(int)
+    base["Target"] = base["Target"].fillna(base["City"].map(I.month_target)).astype(int)
+    base["Overall"] = base.apply(lambda r: "✖ FAILED" if "✖" in r["Mandatory Rule"] + r["Month Rule"] + r["Orders Rule"] else
+                                 ("⚠ At risk" if "⚠" in r["Mandatory Rule"] + r["Month Rule"] + r["Orders Rule"] else "✔ OK"), axis=1)
     t = base.reset_index().rename(columns={"courier_id": "Courier ID", "Days_Worked": "Days Worked"})
     t["_o"] = t["Overall"].str[0].map(ORDER)
     t = t.sort_values(["_o", "Days Worked"]).drop(columns="_o")
-    t = t[["Courier ID", "Name", "City", "Supervisor", "Overall", "Days Worked", "Month Rule", "Mandatory Days", "Mandatory Worked",
-           "Missed Mandatory", "Mandatory Rule"]]
+    t = t[["Courier ID", "Name", "City", "Supervisor", "Overall", "Days Worked", "Month Rule", "Orders", "Target", "Orders Rule", "Avg / Working Day",
+           "Needed / Day", "Pace", "Mandatory Days", "Mandatory Worked", "Missed Mandatory", "Mandatory Rule"]]
 
     n = len(t)
     ok_m = (~t["Mandatory Rule"].str.startswith("✖")).mean() * 100
     ok_d = (~t["Month Rule"].str.startswith("✖")).mean() * 100
     ui.section("Totals")
-    c = st.columns(4)
+    c = st.columns(5)
     ui.card(c[0], "Couriers evaluated", f"{n:,}")
     ui.card(c[1], f"Met {R['min_days_month']} days (or can still)", f"{ok_d:.0f}%", "", I.grade(ok_d, 100, 90, True))
     ui.card(c[2], "Mandatory rule OK", f"{ok_m:.0f}%" if mand else "–", "", I.grade(ok_m, 100, 90, True) if mand else "neutral")
+    behind = int(t["Pace"].str.startswith("✖ Behind").sum())
+    ui.card(c[4], "Behind monthly pace", f"{behind:,}", "", I.grade(behind, 0, 0, False), "Target 0")
     ui.card(c[3], "FAILED overall", f"{int(t['Overall'].str.startswith('✖').sum()):,}", "", I.grade(int(t["Overall"].str.startswith("✖").sum()), 0, 0, False), "Target 0")
 
     if t["City"].nunique() > 1:
@@ -76,13 +85,15 @@ def render():
         g = t.groupby("City").agg(Couriers=("Courier ID", "count"),
                                   Failed_Month=("Month Rule", lambda x: int(x.str.startswith("✖").sum())),
                                   Failed_Mandatory=("Mandatory Rule", lambda x: int(x.str.startswith("✖").sum())),
+                                  Failed_Orders=("Orders Rule", lambda x: int(x.str.startswith("✖").sum())),
+                                  Behind_Pace=("Pace", lambda x: int(x.str.startswith("✖ Behind").sum())),
                                   FAILED=("Overall", lambda x: int(x.str.startswith("✖").sum()))).reset_index()
         g["FAILED %"] = g["FAILED"] / g["Couriers"] * 100
-        ui.table(g.rename(columns={"Failed_Month": "Failed Month Rule", "Failed_Mandatory": "Failed Mandatory Rule"}), "monthly_by_city", "mo_city",
-                 export=False, rules={"FAILED": (0, 0, False), "FAILED %": (0, 10, False), "Failed Month Rule": (0, 0, False), "Failed Mandatory Rule": (0, 0, False)})
+        ui.table(g.rename(columns={"Failed_Month": "Failed Month Rule", "Failed_Mandatory": "Failed Mandatory Rule", "Failed_Orders": "Failed Orders Rule", "Behind_Pace": "Behind Pace"}), "monthly_by_city", "mo_city",
+                 export=False, rules={"FAILED": (0, 0, False), "FAILED %": (0, 10, False), "Failed Month Rule": (0, 0, False), "Failed Mandatory Rule": (0, 0, False), "Failed Orders Rule": (0, 0, False), "Behind Pace": (0, 0, False)})
 
     ui.section("Per courier")
     only = st.checkbox("Only couriers who failed or are at risk", key="mo_only")
     if only:
         t = t[~t["Overall"].str.startswith("✔")]
-    ui.table(ui.search(t, "mo_q"), f"monthly_rules_{mo}", "mo_t", height=560, text_cols=["Overall", "Month Rule", "Mandatory Rule"])
+    ui.table(ui.search(t, "mo_q"), f"monthly_rules_{mo}", "mo_t", height=560, text_cols=["Overall", "Month Rule", "Mandatory Rule", "Orders Rule", "Pace"])
