@@ -13,6 +13,8 @@ CARDS = [
      ("couriers_delivered", "Delivering couriers (avg/day)", "{:,.0f}", "num", False),
      ("couriers_delivered_prop", "Delivering % of registered", "{:.1%}", "rate", False),
      ("courier_eff", "Orders / courier / day", "{:.2f}", "num", False), ("avg_online_hrs", "Avg online time (hrs)", "{:.2f}", "num", False)],
+    [("cancel_rate_di", "Delivery Issue % (Keeta)", "{:.2%}", "rate", True), ("di_cancels", "Delivery-Issue cancels (est.)", "{:,.0f}", "num", True),
+     ("cancelled", "Cancelled orders (accepted − delivered)", "{:,.0f}", "num", True)],
 ]
 
 M.LABELS.setdefault("cancelled", "Cancelled (accepted − delivered)")
