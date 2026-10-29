@@ -87,10 +87,6 @@ def render():
     t = pd.concat([pd.DataFrame([top]), t], ignore_index=True)
     ui.table(t, f"daily_{f['platform']}_{f['city']}", "ov_daily", height=min(740, 38 + 35 * (len(t) + 1)), first_row=True)
 
-    if len(daily) >= 7:
-        ui.section("By weekday", "which days of the week are strongest and weakest, so staffing can follow the pattern")
-        ui.table(_wk(daily), "by_weekday", "ov_wk", export=False)
-
     # ---------------------------------------------------------- scorecard
     ui.section("Full scorecard", "every company metric · this period vs previous · status against target where a target exists")
     export = []
