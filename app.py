@@ -1,6 +1,6 @@
 import streamlit as st
 from core import ui, insights as I
-from views import upload, overview, couriers, curve, shifts, cancels, actions, cities, rules, orders, monthly, citymgr, mincheck
+from views import upload, overview, couriers, curve, shifts, cancels, actions, cities, rules, orders, monthly, citymgr, mincheck, pace
 
 st.set_page_config(page_title="Ops Dashboard", page_icon="🛵", layout="wide", initial_sidebar_state="expanded")
 ui.inject_css()
@@ -36,7 +36,7 @@ def _nodata():
     st.info("No data loaded yet. The administrator needs to upload the files (they may have been cleared by a restart).")
 
 
-SPECS = [(actions.render, "Action Center", "🎯", "actions", True), (orders.render, "Orders", "📦", "orders", False), (mincheck.render, "Min Orders", "📉", "minorders", False),
+SPECS = [(actions.render, "Action Center", "🎯", "actions", True), (orders.render, "Orders", "📦", "orders", False), (pace.render, "Monthly Pace", "⏱️", "pace", False), (mincheck.render, "Min Orders", "📉", "minorders", False),
          (cities.render, "Cities", "🏙️", "cities", False), (monthly.render, "Monthly Rules", "📅", "monthly", False), (overview.render, "Daily Report", "📊", "daily", False),
          (couriers.render, "Couriers", "🏍️", "couriers", False), (curve.render, "Courier Drill-down", "🔎", "curve", False),
          (shifts.render, "Shifts & Hours", "🕒", "shifts", False), (cancels.render, "Cancellations", "🚫", "cancels", False)]
