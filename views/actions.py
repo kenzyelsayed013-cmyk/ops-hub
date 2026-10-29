@@ -40,6 +40,14 @@ def render():
     ui.kpi(c[1], "Cancelled orders", tot.get("cancelled"), ptot.get("cancelled"), "{:,.0f}", "num", True)
     ui.kpi(c[2], "Delivery Issue % (Keeta)", tot.get("cancel_rate_di"), ptot.get("cancel_rate_di"), "{:.2%}", "rate", True)
     ui.kpi(c[3], "Delivery-Issue cancels (est.)", tot.get("di_cancels"), ptot.get("di_cancels"), "{:,.0f}", "num", True)
+    m1, m2 = f["dmax"].replace(day=1), pd.Period(f["dmax"], "M").end_time.date()
+    dm = ui.couriers(f["platform"], f["cities"], m1, m2, f["sup"], f["ctype"], f["veh"])
+    pace = pd.DataFrame()
+    if not dm.empty:
+        lastm = dm["date"].max()
+        pace = I.month_orders(dm, lastm, max(0, (pd.Timestamp(m2) - lastm).days))
+    behind = pace[pace["Pace"].str.startswith("✖ Behind")] if not pace.empty else pace
+    ui.card(c[4], "Behind monthly pace", f"{len(behind):,}", f"of {len(pace):,} couriers · {f['dmax']:%B}", I.grade(len(behind), 0, 0, False), "Target 0")
 
     if len(f["cities"]) > 1:
         ui.section("Cities")
@@ -47,12 +55,16 @@ def render():
 
     if not cd.empty:
         last = cd["date"].max()
-        v, dr = I.day_lists(cd, last)
-        ui.section(f"Latest day {last:%a %d %b}: {len(v)} valid · {len(dr)} INVALID")
-        if dr.empty:
+        v, bs, bo = I.day_lists3(cd, last)
+        ui.section(f"Latest day {last:%a %d %b}: {len(v)} VALID · {len(bs)} INVALID (shifts) · {len(bo)} INVALID (orders)")
+        if bs.empty and bo.empty:
             st.success("No INVALID courier.")
-        else:
-            ui.table(dr, "invalid_latest", "ac_drop", export=False, height=min(420, 38 + 35 * (len(dr) + 1)), text_cols=["Status"] + list(dr.columns[-6:]))
+        if not bs.empty:
+            st.markdown("**INVALID because of shifts**")
+            ui.table(bs, "invalid_shifts_latest", "ac_drop_s", height=min(360, 38 + 35 * (len(bs) + 1)), text_cols=["Status"] + list(bs.columns[-6:]))
+        if not bo.empty:
+            st.markdown("**INVALID because of orders**")
+            ui.table(bo, "invalid_orders_latest", "ac_drop_o", height=min(360, 38 + 35 * (len(bo) + 1)), text_cols=["Status"])
         rc = cd.groupby(["courier_id", "name", "city", "supervisor"])[["rejected_courier", "accepted"]].sum().reset_index()
         rc = rc[rc["rejected_courier"] > 0].sort_values("rejected_courier", ascending=False).head(20)
         ui.section("Couriers who rejected orders (target 0)")
@@ -68,3 +80,9 @@ def render():
             ui.section("Couriers to coach")
             ui.table(coach[["Courier ID", "Name", "Supervisor", "Delivered", "On_time_%", "Overdue", "Severe_Overdue"]].rename(
                 columns={"On_time_%": "On-time %", "Severe_Overdue": "Severely Overdue"}), "coach", "ac_coach", export=False)
+
+    if not behind.empty:
+        ui.section(f"Behind monthly pace, {f['dmax']:%B}")
+        b = behind.assign(Gap=lambda x: x["Needed / Day"] - x["Avg / Working Day"]).sort_values("Gap", ascending=False).head(25)
+        ui.table(b[["Courier ID", "Name", "City", "Supervisor", "Orders", "Target", "Remaining", "Working", "Avg / Working Day", "Needed / Day", "Pace"]]
+                 .rename(columns={"Working": "Working Days"}), "behind_pace", "ac_pace", export=False)
