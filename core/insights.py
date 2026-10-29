@@ -21,6 +21,7 @@ RULES_FILE = Path(__file__).resolve().parent.parent / "rules.json"
 DEFAULT_RULES = {
     "min_orders_normal": 3, "min_orders_mandatory": 7, "mandatory_weekdays": [], "mandatory_dates": [],
     "mand_required": 6, "mand_total": 7, "min_days_month": 26, "di_total": "average",
+    "month_orders_default": 380, "month_orders_city": {},
     "require_all_shifts": True,
     "targets": {"ontime_rate": [99.6, 99.0], "cancel_rate": [0.19, 0.5], "attendance": [100, 95], "valid_rate": [100, 90]},
 }
@@ -65,14 +66,15 @@ def rule_sentence():
     return (f"A courier is VALID on a scheduled day if he " + ("completes all his shifts and " if R["require_all_shifts"] else "")
             + f"delivers at least {R['min_orders_normal']} orders on a normal day or {R['min_orders_mandatory']} on a mandatory day "
             f"(mandatory: {days}{extra}). The order minimum applies only to couriers who deliver at all in the period. "
-            f"Monthly: attend {R['mand_required']} of {R['mand_total']} mandatory days and at least {R['min_days_month']} days in the month.")
+            f"Monthly: attend {R['mand_required']} of {R['mand_total']} mandatory days, at least {R['min_days_month']} days, and the monthly orders of his city (default {R['month_orders_default']}).")
 
 TABLE_RULES = {
     "On-time %": (99.6, 99, True), "Cancel %": (0.19, 0.5, False),
     "Rejected (Courier)": (0, 0, False), "Courier Rejects": (0, 0, False),
     "Attendance %": (100, 95, True), "Valid %": (100, 90, True),
     "Completed all %": (100, 90, True), "Qualified shifts %": (100, 90, True),
-    "Days Not Completed": (0, 2, False), "INVALID": (0, 0, False), "INVALID Days": (0, 0, False), "Missed Mandatory": (0, 1, False), "Absent": (0, 0, False),
+    "Days Not Completed": (0, 2, False), "INVALID (shifts)": (0, 0, False), "INVALID (orders)": (0, 0, False),
+    "INVALID Days (shifts)": (0, 0, False), "INVALID Days (orders)": (0, 0, False), "INVALID": (0, 0, False), "INVALID Days": (0, 0, False), "Missed Mandatory": (0, 1, False), "Absent": (0, 0, False),
     "Delivered vs prev day %": (0, -10, True),
 }
 TAGS = {"good": "ON TARGET", "warn": "WATCH", "bad": "ACT NOW"}
@@ -247,6 +249,67 @@ def company_stats(co):
     return daily, tot
 
 
+def month_target(city):
+    return int(RULES["month_orders_city"].get(city, RULES["month_orders_default"]))
+
+
+def day_lists3(cd, day):
+    """(valid, invalid_by_shifts, invalid_by_orders) for one date, display-ready. A courier failing both is in both lists."""
+    s = sched_days(cd)
+    s = s[s["date"] == pd.Timestamp(day)]
+    sym = {"qualified": "✅", "unqualified": "❌", "off": "·"}
+    SL = dict(zip(SLOT_COLS, SLOTS))
+    ren = {"courier_id": "Courier ID", "name": "Name", "city": "City", "supervisor": "Supervisor", "valid_hrs": "Valid Hrs"}
+
+    def shifts_view(x, status):
+        o = x[["courier_id", "name", "city", "supervisor", "shifts_scheduled", "shifts_qualified", "valid_hrs"] + SLOT_COLS].copy()
+        for c in SLOT_COLS:
+            o[c] = o[c].map(sym).fillna("·")
+        o.insert(2, "Status", status)
+        return o.rename(columns={**ren, "shifts_scheduled": "Shifts", "shifts_qualified": "Qualified", **SL}).reset_index(drop=True)
+
+    def orders_view(x, status):
+        o = x[["courier_id", "name", "city", "supervisor", "delivered", "min_orders", "mandatory", "valid_hrs"]].copy()
+        o["mandatory"] = o["mandatory"].map({True: "Yes", False: "No"})
+        o.insert(2, "Status", status)
+        return o.rename(columns={**ren, "delivered": "Orders", "min_orders": "Min Orders", "mandatory": "Mandatory Day"}).sort_values("Orders").reset_index(drop=True)
+    return (shifts_view(s[s["valid"]], "VALID").drop(columns=list(SL.values())).join(orders_view(s[s["valid"]], "VALID")[["Orders", "Min Orders"]]),
+            shifts_view(s[~s["shifts_ok"]].sort_values("shifts_qualified"), "INVALID (shifts)"),
+            orders_view(s[~s["orders_ok"]], "INVALID (orders)"))
+
+
+def month_orders(d, last, left, keep_all=False):
+    """Per courier: orders vs the monthly target of his city, and whether his daily pace is enough."""
+    if d is None or d.empty:
+        return pd.DataFrame()
+    g = d.groupby("courier_id").agg(Name=("name", "last"), City=("city", "last"), Supervisor=("supervisor", "last"),
+                                    Orders=("delivered", "sum"), Working=("valid_hrs", lambda x: int((x > 0).sum())),
+                                    Best=("delivered", "max")).reset_index().rename(columns={"courier_id": "Courier ID"})
+    g = (g if keep_all else g[(g["Orders"] > 0) | (g["Working"] > 0)]).copy()
+    g["Target"] = g["City"].map(month_target)
+    g["Remaining"] = (g["Target"] - g["Orders"]).clip(lower=0)
+    g["Avg / Working Day"] = np.where(g["Working"] > 0, g["Orders"] / g["Working"].replace(0, np.nan), np.nan)
+    g["Needed / Day"] = g["Target"] / max(1, RULES["min_days_month"])
+
+    def orders_rule(r):
+        if r["Orders"] >= r["Target"]:
+            return "✔ Reached"
+        if left <= 0:
+            return f"✖ Missed ({r['Orders']:.0f}/{r['Target']})"
+        need = r["Remaining"] / left
+        return f"⚠ Needs {r['Remaining']:.0f} in {left} days" if need <= max(r["Best"], r["Needed / Day"]) else f"✖ Unlikely ({need:.1f}/day needed)"
+
+    def pace(r):
+        if r["Orders"] >= r["Target"]:
+            return "✔ Reached"
+        if pd.isna(r["Avg / Working Day"]):
+            return "✖ No working days"
+        return "✔ On pace" if r["Avg / Working Day"] >= r["Needed / Day"] else f"✖ Behind ({r['Avg / Working Day']:.1f} vs {r['Needed / Day']:.1f})"
+    g["Orders Rule"] = g.apply(orders_rule, axis=1)
+    g["Pace"] = g.apply(pace, axis=1)
+    return g
+
+
 # ---------------------------------------------------------------- cities
 def city_table(co, cd, day=None):
     if day is not None:
@@ -271,6 +334,8 @@ def city_table(co, cd, day=None):
                       "Valid %": st_["valid"] * 100 if st_["n"] else np.nan,
                       "VALID Courier-days": int(s["valid"].sum()) if len(s) else 0, "INVALID Courier-days": int((~s["valid"]).sum()) if len(s) else 0,
                       "Couriers with INVALID day": int(s.loc[~s["valid"], "courier_id"].nunique()) if len(s) else 0,
+                      "INVALID shifts (courier-days)": int((~s["shifts_ok"]).sum()) if len(s) else 0,
+                      "INVALID orders (courier-days)": int((~s["orders_ok"]).sum()) if len(s) else 0,
                       "Courier Rejects": b["rejected_courier"].sum()})
         return r
     rows = [one("ALL CITIES", co, cd)]
