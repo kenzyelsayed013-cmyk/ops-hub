@@ -33,7 +33,7 @@ def render():
         st.caption(f"Daily pace = monthly orders ÷ {int(R['min_days_month'])} working days. Example: 380 ÷ {int(R['min_days_month'])} = {380 / max(1, R['min_days_month']):.1f} per day.")
     st.markdown("#### Targets (green line) and red line, in %")
     T, new_t = R["targets"], {}
-    for key, lab in [("ontime_rate", "On-time rate"), ("cancel_rate", "Cancelled % (accepted − delivered)"), ("attendance", "Attendance on scheduled days"), ("valid_rate", "Valid couriers")]:
+    for key, lab in [("ontime_rate", "On-time rate"), ("cancel_rate_di", "Delivery Issue % (Keeta)"), ("attendance", "Attendance on scheduled days"), ("valid_rate", "Valid couriers")]:
         a, b, _ = st.columns([2, 1, 1])
         a.markdown(f"**{lab}**")
         g = b.number_input("Target", 0.0, 100.0, float(T[key][0]), 0.01, key=f"t_g_{key}", format="%.2f")
