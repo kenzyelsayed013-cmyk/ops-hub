@@ -77,9 +77,6 @@ def render():
                    "Orders_per_Active_Day": "Orders / Day", "Hrs_per_Active_Day": "Hrs / Day", "On_time_%": "On-time %"})
         ui.table(t, "courier_compare", "cv_cmp", export=False)
 
-    ui.section("Week by week", "newest week first · change in delivered orders vs the previous week")
-    ui.table(_weekly(cur), f"courier_weekly_{'_'.join(ids[:3])}", "cv_wk")
-
     ui.section("Day by day", "✅ qualified shift · ❌ unqualified · · not scheduled")
     t = cur.copy()
     sym = {"qualified": "✅", "unqualified": "❌", "off": "·"}
