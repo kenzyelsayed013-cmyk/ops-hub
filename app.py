@@ -1,9 +1,18 @@
 import streamlit as st
-from core import ui, insights as I
+from core import backup, db, ui, insights as I
 from views import upload, overview, couriers, curve, shifts, cancels, actions, cities, rules, orders, monthly, citymgr, mincheck, pace
 
 st.set_page_config(page_title="Ops Dashboard", page_icon="🛵", layout="wide", initial_sidebar_state="expanded")
 ui.inject_css()
+if backup.enabled() and not st.session_state.get("_restore_tried"):
+    st.session_state["_restore_tried"] = True
+    try:
+        if db.meta().empty:                      # the app was restarted and the local data is gone
+            with st.spinner("Restoring the saved data…"):
+                backup.restore(db)
+            st.cache_data.clear()
+    except Exception:
+        pass
 I.load_rules()
 
 # optional viewer password (APP_PASSWORD in Streamlit secrets)
