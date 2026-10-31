@@ -76,6 +76,8 @@ TABLE_RULES = {
     "Days Not Completed": (0, 2, False), "INVALID (shifts)": (0, 0, False), "INVALID (orders)": (0, 0, False),
     "INVALID Days (shifts)": (0, 0, False), "INVALID Days (orders)": (0, 0, False), "INVALID": (0, 0, False), "INVALID Days": (0, 0, False), "Missed Mandatory": (0, 1, False), "Absent": (0, 0, False),
     "Delivered vs prev day %": (0, -10, True),
+    "Short per Day": (0, 2, False), "Short / Over at Month End": (0, -20, True), "Behind Pace (couriers)": (0, 0, False),
+    "Below Minimum": (0, 0, False), "Days Below Minimum": (0, 3, False),
     "Pace %": (100, 85, True), "Projected vs Target": (0, -20, True), "Orders vs Expected": (0, -20, True), "Behind %": (0, 20, False),
     "Below Min %": (0, 10, False), "Days Below Min %": (0, 30, False), "Current Streak": (0, 2, False), "Short By": (0, 2, False),
 }
