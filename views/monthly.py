@@ -54,7 +54,7 @@ def render():
     base["Mandatory Rule"] = base.apply(mrule, axis=1)
     base["Month Rule"] = base.apply(drule, axis=1)
     pc = I.month_orders(d, last, left, keep_all=True).set_index("Courier ID")
-    for col, dflt in [("Orders", 0), ("Target", None), ("Avg / Working Day", None), ("Needed / Day", None), ("Orders Rule", "–"), ("Pace", "–")]:
+    for col, dflt in [("Orders", 0), ("Target", None), ("Avg / Working Day", None), ("Needed / Day", None), ("Orders Rule", "–"), ("Pace", "–"), ("Prorated Target", None), ("Over / Under", None)]:
         base[col] = pc[col].reindex(base.index)
         if dflt is not None:
             base[col] = base[col].fillna(dflt)
@@ -65,7 +65,7 @@ def render():
     t = base.reset_index().rename(columns={"courier_id": "Courier ID", "Days_Worked": "Days Worked"})
     t["_o"] = t["Overall"].str[0].map(ORDER)
     t = t.sort_values(["_o", "Days Worked"]).drop(columns="_o")
-    t = t[["Courier ID", "Name", "City", "Supervisor", "Overall", "Days Worked", "Month Rule", "Orders", "Target", "Orders Rule", "Avg / Working Day",
+    t = t[["Courier ID", "Name", "City", "Supervisor", "Overall", "Days Worked", "Month Rule", "Orders", "Target", "Prorated Target", "Over / Under", "Orders Rule", "Avg / Working Day",
            "Needed / Day", "Pace", "Mandatory Days", "Mandatory Worked", "Missed Mandatory", "Mandatory Rule"]]
 
     n = len(t)
