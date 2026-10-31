@@ -89,6 +89,37 @@ def render():
     t = pd.concat([pd.DataFrame([top]), t], ignore_index=True)
     ui.table(t, f"daily_{f['platform']}_{f['city']}", "ov_daily", height=min(740, 38 + 35 * (len(t) + 1)), first_row=True)
 
+    # ---------------------------------------------------------- couriers, day or whole period
+    cd0 = ui.get_couriers()
+    if not cd0.empty:
+        ui.section("Couriers: hours, orders, cancelled, rejected, delivery issue, on-time")
+        days = sorted(cd0["date"].unique(), reverse=True)
+        pick = st.selectbox("Day", ["Whole period"] + days, format_func=lambda x: x if isinstance(x, str) else f"{pd.Timestamp(x):%a %d %b %Y}", key="ov_cday")
+        x = cd0 if isinstance(pick, str) else cd0[cd0["date"] == pd.Timestamp(pick)]
+        x = x.assign(cancelled=(x["accepted"] - x["delivered"]).clip(lower=0))
+        rows = []
+        for cid, g in x.groupby("courier_id"):
+            if not ((g["delivered"] > 0).any() or (g["valid_hrs"] > 0).any() or (g["accepted"] > 0).any()):
+                continue
+            dl = g["delivered"].sum()
+            ot = g["w_ontime"].sum()
+            rows.append({"Courier ID": cid, "Name": g["name"].iloc[-1], "City": g["city"].iloc[-1], "Supervisor": g["supervisor"].iloc[-1],
+                         "Online Hours": g["valid_hrs"].sum(), "Orders Accepted": g["accepted"].sum(), "Orders Delivered": dl,
+                         "Cancelled": g["cancelled"].sum(), "Rejected (Courier)": g["rejected_courier"].sum(), "Rejected (Auto)": g["rejected_auto"].sum(),
+                         "Delivery-Issue (est.)": g["di_cancels"].sum(), "Delivery Issue %": I.di_avg(g, "cancel_rate_di", "accepted") * 100,
+                         "On-time Orders": round(ot), "Late Orders": round(dl - ot), "On-time %": ot / dl * 100 if dl else float("nan")})
+        ct_ = pd.DataFrame(rows).sort_values("Orders Delivered", ascending=False) if rows else pd.DataFrame()
+        if ct_.empty:
+            st.info("No courier activity in this selection.")
+        else:
+            tot_ = {"Courier ID": "", "Name": "ALL COURIERS", "City": "", "Supervisor": "", **{c: ct_[c].sum() for c in ["Online Hours", "Orders Accepted", "Orders Delivered",
+                    "Cancelled", "Rejected (Courier)", "Rejected (Auto)", "Delivery-Issue (est.)", "On-time Orders", "Late Orders"]},
+                    "Delivery Issue %": I.di_avg(x, "cancel_rate_di", "accepted") * 100,
+                    "On-time %": ct_["On-time Orders"].sum() / ct_["Orders Delivered"].sum() * 100 if ct_["Orders Delivered"].sum() else float("nan")}
+            ct_ = pd.concat([pd.DataFrame([tot_]), ct_], ignore_index=True)
+            fname = f"couriers_{'period' if isinstance(pick, str) else pd.Timestamp(pick).strftime('%Y%m%d')}_{f['platform']}"
+            ui.table(ui.search(ct_, "ov_cq"), fname, "ov_ct", first_row=True, height=520)
+
     # ---------------------------------------------------------- scorecard
     ui.section("Full scorecard", "every company metric · this period vs previous · status against target where a target exists")
     export = []
