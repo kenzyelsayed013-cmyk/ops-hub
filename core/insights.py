@@ -21,7 +21,7 @@ RULES_FILE = Path(__file__).resolve().parent.parent / "rules.json"
 DEFAULT_RULES = {
     "min_orders_normal": 3, "min_orders_mandatory": 7, "mandatory_weekdays": [], "mandatory_dates": [],
     "mand_required": 6, "mand_total": 7, "min_days_month": 26, "di_total": "average",
-    "month_orders_default": 380, "month_orders_city": {},
+    "month_orders_default": 380, "month_orders_city": {}, "month_orders_by_month": {},
     "require_all_shifts": True,
     "targets": {"ontime_rate": [99.6, 99.0], "cancel_rate_di": [0.19, 0.5], "attendance": [100, 95], "valid_rate": [100, 90]},
 }
@@ -56,6 +56,11 @@ def save_rules(new):
     RULES.update({k: v for k, v in new.items() if k != "targets"})
     RULES["targets"].update(new.get("targets", {}))
     RULES_FILE.write_text(json.dumps(RULES, indent=2))
+    try:
+        from . import backup
+        backup.push_text("rules.json", RULES_FILE.read_text())
+    except Exception:
+        pass
     _sync()
 
 
@@ -78,7 +83,7 @@ TABLE_RULES = {
     "Delivered vs prev day %": (0, -10, True),
     "Short per Day": (0, 2, False), "Short / Over at Month End": (0, -20, True), "Behind Pace (couriers)": (0, 0, False),
     "Below Minimum": (0, 0, False), "Days Below Minimum": (0, 3, False),
-    "Pace %": (100, 85, True), "Projected vs Target": (0, -20, True), "Orders vs Expected": (0, -20, True), "Behind %": (0, 20, False),
+    "Pace %": (100, 85, True), "Over / Under": (0, -20, True), "Projected vs Target": (0, -20, True), "Orders vs Expected": (0, -20, True), "Behind %": (0, 20, False),
     "Below Min %": (0, 10, False), "Days Below Min %": (0, 30, False), "Current Streak": (0, 2, False), "Short By": (0, 2, False),
 }
 TAGS = {"good": "ON TARGET", "warn": "WATCH", "bad": "ACT NOW"}
@@ -253,7 +258,11 @@ def company_stats(co):
     return daily, tot
 
 
-def month_target(city):
+def month_target(city, month=None):
+    """Monthly orders a courier needs in `city` for `month` ("YYYY-MM"). Month-specific value first, then the city default."""
+    by = RULES.get("month_orders_by_month", {}).get(month or "", {})
+    if city in by:
+        return int(by[city])
     return int(RULES["month_orders_city"].get(city, RULES["month_orders_default"]))
 
 
@@ -290,25 +299,29 @@ def month_orders(d, last, left, keep_all=False):
                                     Orders=("delivered", "sum"), Working=("valid_hrs", lambda x: int((x > 0).sum())),
                                     Best=("delivered", "max")).reset_index().rename(columns={"courier_id": "Courier ID"})
     g = (g if keep_all else g[(g["Orders"] > 0) | (g["Working"] > 0)]).copy()
-    g["Target"] = g["City"].map(month_target)
+    mkey = pd.Timestamp(last).strftime("%Y-%m")
+    g["Target"] = [month_target(c, mkey) for c in g["City"]]
     g["Remaining"] = (g["Target"] - g["Orders"]).clip(lower=0)
     g["Avg / Working Day"] = np.where(g["Working"] > 0, g["Orders"] / g["Working"].replace(0, np.nan), np.nan)
-    g["Needed / Day"] = g["Target"] / max(1, RULES["min_days_month"])
+    req = max(1, RULES["min_days_month"])
+    g["Needed / Day"] = g["Target"] / req
+    # a courier's own target = monthly target / 26 x the days he worked (a late starter is judged on his days only)
+    g["Prorated Target"] = g["Needed / Day"] * np.minimum(g["Working"], req)
+    g["Over / Under"] = g["Orders"] - g["Prorated Target"]
 
     def orders_rule(r):
         if r["Orders"] >= r["Target"]:
             return "✔ Reached"
-        if left <= 0:
-            return f"✖ Missed ({r['Orders']:.0f}/{r['Target']})"
-        need = r["Remaining"] / left
-        return f"⚠ Needs {r['Remaining']:.0f} in {left} days" if need <= max(r["Best"], r["Needed / Day"]) else f"✖ Unlikely ({need:.1f}/day needed)"
+        short = r["Prorated Target"] - r["Orders"]
+        if short <= 0:
+            return "✔ On track" if left > 0 else "✔ Met"
+        return f"✖ Behind by {short:.0f} orders" if left > 0 else f"✖ Missed by {short:.0f} orders"
 
     def pace(r):
         if r["Orders"] >= r["Target"]:
             return "✔ Reached"
-        if pd.isna(r["Avg / Working Day"]):
-            return "✖ No working days"
-        return "✔ On pace" if r["Avg / Working Day"] >= r["Needed / Day"] else f"✖ Behind ({r['Avg / Working Day']:.1f} vs {r['Needed / Day']:.1f})"
+        short = r["Prorated Target"] - r["Orders"]
+        return "✔ On pace" if short <= 0 else f"✖ Behind ({short:.0f} orders)"
     g["Orders Rule"] = g.apply(orders_rule, axis=1)
     g["Pace"] = g.apply(pace, axis=1)
     return g
