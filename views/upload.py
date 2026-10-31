@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 import pandas as pd
 import streamlit as st
-from core import db, parsers, ui
+from core import backup, db, parsers, ui
 from core.config import PLATFORMS, DEFAULT_CITIES
 
 CITIES_FILE = Path(__file__).resolve().parent.parent / "cities.json"
@@ -23,12 +23,23 @@ def _remember(name):
     if name.lower() not in [c.lower() for c in cur]:
         try:
             CITIES_FILE.write_text(json.dumps(cur + [name], ensure_ascii=False))
+            backup.push_text("cities.json", CITIES_FILE.read_text())
         except Exception:
             pass
 
 
 def _clean(v):
     return " ".join(str(v).split())
+
+
+def clean_city(s):
+    """'anan alasimah Company For logistics ( Riyadh )' -> 'Riyadh'. The city is the text inside the last brackets, if any."""
+    s = _clean(s)
+    m = re.findall(r"[\(\[（]\s*([^()\[\]（）]+?)\s*[\)\]）]", s)
+    if m:
+        s = _clean(m[-1])
+    s = _clean(re.sub(r"\bbranch\b", "", s, flags=re.I))
+    return s
 
 
 def _bad(s):
@@ -44,7 +55,8 @@ def detect_branch(f, parsed=None):
                 v = v[~v.map(_bad)]
                 if len(v):
                     u = sorted(v.unique())
-                    return (v.mode().iloc[0] if len(u) == 1 else None), u
+                    u = sorted({clean_city(x) for x in u})
+                    return (u[0] if len(u) == 1 else None), u
     try:
         f.seek(0)
         raw = pd.read_excel(f, header=None, sheet_name=None, nrows=300)
@@ -62,26 +74,27 @@ def detect_branch(f, parsed=None):
                 if pd.isna(cell):
                     continue
                 txt = _clean(cell)
-                m = _LABEL.match(txt) if len(txt) <= 40 else None
+                m = _LABEL.match(txt) if len(txt) <= 140 else None
                 if not m:
                     continue
                 if m.group(2) and m.group(3) and not _bad(_clean(m.group(3))):      # "Branch: Jeddah"
-                    return _clean(m.group(3)), [_clean(m.group(3))]
+                    return clean_city(m.group(3)), [clean_city(m.group(3))]
                 if m.group(3):                                                        # a sentence, not a label
                     continue
                 filled = [_clean(x) for x in row if pd.notna(x) and _clean(x)]
                 if len(filled) == 2 and filled[0] == txt:                              # "Branch" | "Jeddah" (a key-value row)
                     val = filled[1]
                     if not _bad(val) and not any(w in val.lower() for w in _HEADERISH):
-                        return val, [val]
+                        return clean_city(val), [clean_city(val)]
                 below = df.iloc[r + 1:, c].dropna().astype(str).map(_clean)          # column "Branch" with values under it
                 below = below[~below.map(_bad)]
                 if len(below):
                     u = sorted(below.unique())
-                    return (below.mode().iloc[0] if len(u) == 1 else None), u
+                    u = sorted({clean_city(x) for x in u})
+                    return (u[0] if len(u) == 1 else None), u
                 right = [_clean(x) for x in row.iloc[c + 1:] if pd.notna(x) and not _bad(_clean(x))]   # "Branch" | "Jeddah"
                 if right:
-                    return right[0], right[:1]
+                    return clean_city(right[0]), [clean_city(right[0])]
     return None, []
 
 
@@ -94,9 +107,10 @@ def render():
     st.markdown('<div class="topbar"><div class="t1">UPLOAD DATA</div>'
                 '<div class="t2">Drop the exports of any cities together. The city is read from the branch name inside each file</div></div>',
                 unsafe_allow_html=True)
-    if not db.is_persistent():
-        st.warning("No DATABASE_URL in secrets: data is saved locally and temporarily (it will be wiped on Streamlit Cloud). "
-                   "Connect Supabase first, see the README.")
+    if backup.enabled():
+        st.caption("Backup is ON: every upload is also saved to your private GitHub data repo and restored after a restart.")
+    elif not db.is_persistent():
+        st.warning("Backup is OFF: the data is lost when the app restarts. Add GITHUB_TOKEN and DATA_REPO to the app Secrets to keep it.")
     platform = st.selectbox("Platform", list(PLATFORMS), key="up_platform")
     pkey = PLATFORMS[platform]["parser"]
     if pkey is None:
@@ -144,12 +158,24 @@ def render():
     ready = all(it["branch"] for it in items)
     if st.button(f"Save {len(items)} file(s)", type="primary", disabled=not ready):
         with st.spinner("Saving…"):
+            failed = []
             for it in items:
                 db.save(it["kind"], it["df"], platform, it["branch"], it["file"])
                 _remember(it["branch"])
+                if backup.enabled():
+                    try:
+                        backup.push(it["kind"], it["df"], platform, it["branch"])
+                    except Exception as e:
+                        failed.append(f"{it['file']} ({e})")
         st.cache_data.clear()
-        st.success("Saved: " + " · ".join(f"{c} ({len(k)})" for c, k in by_city.items()))
+        st.session_state["_saved_msg"] = ("Saved: " + " · ".join(f"{c} ({len(k)})" for c, k in by_city.items()) +
+                                          ("" if not backup.enabled() else ("  ·  backed up to GitHub" if not failed else "")), failed)
         st.rerun()
+    if st.session_state.get("_saved_msg"):
+        msg, failed = st.session_state.pop("_saved_msg")
+        st.success(msg)
+        if failed:
+            st.error("Saved in the app, but the GitHub backup failed for: " + ", ".join(failed))
 
     ui.section("Upload log")
     log = db.log_df()
