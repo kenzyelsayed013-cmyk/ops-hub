@@ -180,7 +180,7 @@ def styled(df, rules=None, first_row=False, text_cols=None):
     return sty
 
 
-BUILD = "31 Oct 2026 · v16"
+BUILD = "31 Oct 2026 · v17"
 _DEFER = "callable" in (st.download_button.__doc__ or "")
 _XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -282,6 +282,11 @@ def alias():
 
 def save_alias(rename, hidden):
     ALIAS_FILE.write_text(json.dumps({"rename": rename, "hidden": hidden}, ensure_ascii=False, indent=1))
+    try:
+        from . import backup
+        backup.push_text("city_alias.json", ALIAS_FILE.read_text())
+    except Exception:
+        pass
 
 
 def meta():
@@ -383,11 +388,63 @@ def filters():
     return st.session_state.get("filters")
 
 
+_SUM = ["delivered", "accepted", "rejected", "rejected_courier", "rejected_auto", "large_orders", "overdue", "severe_overdue",
+        "valid_online_sec", "app_online_sec", "peak_online_sec"]
+_MAX = ["shifts_scheduled", "shifts_qualified"]
+
+
+def merge_ids(d):
+    """The courier ID is the identity. Same ID on the same day (two registrations) becomes ONE row with everything added up,
+    and every row of an ID carries the name of its latest working day."""
+    if d is None or d.empty or "courier_id" not in d.columns:
+        return d
+    from .config import SLOT_COLS
+    d = d.copy()
+    d["courier_id"] = d["courier_id"].astype(str).str.strip()
+    for c in _SUM + _MAX:
+        if c in d.columns:
+            d[c] = pd.to_numeric(d[c], errors="coerce").fillna(0)
+    d = d.sort_values(["date"] + [c for c in ("delivered", "valid_online_sec") if c in d.columns], kind="stable")
+    if d.duplicated(["date", "courier_id"]).any():
+        d["_wo"] = pd.to_numeric(d.get("ontime_rate"), errors="coerce") * d["delivered"]
+        d["_wa"] = pd.to_numeric(d.get("avg_delivery_min"), errors="coerce") * d["delivered"]
+        d["_wd"] = pd.to_numeric(d.get("cancel_rate_di"), errors="coerce") * d["accepted"]
+        agg = {}
+        for c in d.columns:
+            if c in ("date", "courier_id"):
+                continue
+            if c in _SUM or c in ("_wo", "_wa", "_wd"):
+                agg[c] = "sum"
+            elif c in _MAX:
+                agg[c] = "max"
+            elif c in SLOT_COLS:
+                agg[c] = lambda s: "qualified" if (s == "qualified").any() else ("unqualified" if (s == "unqualified").any() else "off")
+            else:
+                agg[c] = "last"
+        g = d.groupby(["date", "courier_id"], sort=False).agg(agg).reset_index()
+        dl, ac = g["delivered"].where(g["delivered"] > 0), g["accepted"].where(g["accepted"] > 0)
+        if "ontime_rate" in g:
+            g["ontime_rate"] = (g["_wo"] / dl).fillna(g["ontime_rate"])
+        if "avg_delivery_min" in g:
+            g["avg_delivery_min"] = (g["_wa"] / dl).fillna(g["avg_delivery_min"])
+        if "cancel_rate_di" in g:
+            g["cancel_rate_di"] = (g["_wd"] / ac).fillna(g["cancel_rate_di"])
+        d = g.drop(columns=["_wo", "_wa", "_wd"]).sort_values("date", kind="stable")
+    if "first_name" in d.columns:
+        active = d[(d["delivered"] > 0) | (d.get("valid_online_sec", 0) > 0)]
+        last = pd.concat([d.drop_duplicates("courier_id", keep="last"), active.drop_duplicates("courier_id", keep="last")]).drop_duplicates("courier_id", keep="last").set_index("courier_id")
+        for c in ("first_name", "last_name"):
+            if c in d.columns:
+                d[c] = d["courier_id"].map(last[c])
+    return d.reset_index(drop=True)
+
+
 @st.cache_data(show_spinner=False)
 def couriers(platform, cities, d1, d2, sup, ctype, veh):
     d = _load("courier", platform, cities, d1, d2)
     if d.empty:
         return d
+    d = merge_ids(d)
     if sup:
         d = d[d["supervisor"].isin(sup)]
     if ctype:
