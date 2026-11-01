@@ -22,6 +22,7 @@ DEFAULT_RULES = {
     "min_orders_normal": 3, "min_orders_mandatory": 7, "mandatory_weekdays": [], "mandatory_dates": [],
     "mand_required": 6, "mand_total": 7, "min_days_month": 26, "di_total": "average",
     "month_orders_default": 380, "month_orders_city": {}, "month_orders_by_month": {},
+    "max_invalid_days": 4, "rule_orders_target": True, "rule_invalid_days": True, "rule_mandatory": True, "rule_min_days": False,
     "require_all_shifts": True,
     "targets": {"ontime_rate": [99.6, 99.0], "cancel_rate_di": [0.19, 0.5], "attendance": [100, 95], "valid_rate": [100, 90]},
 }
@@ -83,7 +84,7 @@ TABLE_RULES = {
     "Delivered vs prev day %": (0, -10, True),
     "Short per Day": (0, 2, False), "Short / Over at Month End": (0, -20, True), "Behind Pace (couriers)": (0, 0, False),
     "Below Minimum": (0, 0, False), "Days Below Minimum": (0, 3, False),
-    "Pace %": (100, 85, True), "Over / Under": (0, -20, True), "Projected vs Target": (0, -20, True), "Orders vs Expected": (0, -20, True), "Behind %": (0, 20, False),
+    "Pace %": (100, 85, True), "Over / Under": (0, -20, True), "Invalid Days": (0, 4, False), "Projected vs Target": (0, -20, True), "Orders vs Expected": (0, -20, True), "Behind %": (0, 20, False),
     "Below Min %": (0, 10, False), "Days Below Min %": (0, 30, False), "Current Streak": (0, 2, False), "Short By": (0, 2, False),
 }
 TAGS = {"good": "ON TARGET", "warn": "WATCH", "bad": "ACT NOW"}
@@ -138,7 +139,7 @@ def tone_of_text(v):
         return "bad"
     if s.startswith(("✔", "✅", "Star", "VALID")):
         return "good"
-    if s.startswith(("⚠", "Low eff")):
+    if s.startswith(("⚠", "Low eff", "AT RISK")):
         return "warn"
     if s.startswith(("✖", "❌", "Idle", "Needs")):
         return "bad"
@@ -351,6 +352,74 @@ def funnel_row(label, t):
             "Lost before delivery": t["picked"] - t["delivered"], "Delivered": t["delivered"],
             "Total lost": t["assigned"] - t["delivered"],
             "Lost %": (t["assigned"] - t["delivered"]) / t["assigned"] * 100 if t["assigned"] else np.nan, **label}
+
+def validation_text():
+    R = RULES
+    parts = []
+    if R.get("rule_orders_target", True):
+        parts.append(f"reached his orders target (his city's monthly target ÷ {int(R['min_days_month'])} × the days he worked)")
+    if R.get("rule_invalid_days", True):
+        parts.append(f"has no more than {int(R['max_invalid_days'])} INVALID days in the month (shifts or orders)")
+    if R.get("rule_mandatory", True):
+        parts.append(f"attended {int(R['mand_required'])} of {int(R['mand_total'])} mandatory days")
+    if R.get("rule_min_days", False):
+        parts.append(f"worked at least {int(R['min_days_month'])} days")
+    return "A courier is VALID for the month if he " + "; ".join(parts) + "." if parts else "No monthly rule is switched on."
+
+
+def monthly_verdict(d, last, left, m1, m2):
+    """One row per courier for a month: VALID / AT RISK / INVALID and why. d = all courier rows of that month."""
+    R = RULES
+    if d is None or d.empty:
+        return pd.DataFrame()
+    pace = month_orders(d, last, left, keep_all=True).set_index("Courier ID")
+    s = sched_days(d)
+    ids = set(pace.index[(pace["Orders"] > 0) | (pace["Working"] > 0)])
+    if not s.empty:
+        ids |= set(s["courier_id"]) & set(pace.index)
+    out = pace.loc[sorted(ids)].copy()
+    if not s.empty and (~s["valid"]).any():
+        bad = s[~s["valid"]]
+        inv = bad.groupby("courier_id").agg(**{"Invalid Days": ("valid", "size"), "Invalid by Shifts": ("shifts_ok", lambda x: int((~x).sum())),
+                                              "Invalid by Orders": ("orders_ok", lambda x: int((~x).sum()))})
+        out = out.join(inv, how="left")
+    for c in ("Invalid Days", "Invalid by Shifts", "Invalid by Orders"):
+        out[c] = out[c].fillna(0).astype(int) if c in out else 0
+    mand = mandatory_between(m1, m2)
+    passed = [x for x in mand if x <= last]
+    mw = d[d["date"].isin(mand) & (d["valid_hrs"] > 0)].groupby("courier_id")["date"].nunique() if mand else pd.Series(dtype=int)
+    out["Mandatory Worked"] = out.index.map(mw).fillna(0).astype(int)
+    out["Mandatory Missed"] = (len(passed) - out["Mandatory Worked"]).clip(lower=0) if mand else 0
+    allowed = max(0, int(R["mand_total"]) - int(R["mand_required"]))
+    off = pd.Series(False, index=out.index)
+    month_over = left <= 0
+    f_orders = (out["Orders"] < out["Prorated Target"]) if R.get("rule_orders_target", True) else off
+    f_inv = (out["Invalid Days"] > int(R["max_invalid_days"])) if R.get("rule_invalid_days", True) else off
+    r_inv = ((out["Invalid Days"] == int(R["max_invalid_days"])) & (not month_over)) if R.get("rule_invalid_days", True) else off
+    f_mand = ((out["Mandatory Missed"] > allowed) if mand and R.get("rule_mandatory", True) else off)
+    r_mand = (((out["Mandatory Missed"] == allowed) & (len(mand) > len(passed))) if mand and R.get("rule_mandatory", True) else off)
+    mind = int(R["min_days_month"])
+    f_days = ((out["Working"] < mind) & ((left <= 0) | (out["Working"] + left < mind))) if R.get("rule_min_days", False) else off
+    out["f_orders"], out["f_inv"], out["f_mand"], out["f_days"] = f_orders, f_inv, f_mand, f_days
+    out["Result"] = np.select([f_orders | f_inv | f_mand | f_days, r_inv | r_mand], ["INVALID", "AT RISK"], "VALID")
+
+    def why(r):
+        w = []
+        if r["f_orders"]:
+            w.append(f"Orders {r['Orders']:.0f} of {r['Prorated Target']:.0f}")
+        if r["f_inv"]:
+            w.append(f"{r['Invalid Days']} INVALID days")
+        if r["f_mand"]:
+            w.append(f"Missed {r['Mandatory Missed']} mandatory days")
+        if r["f_days"]:
+            w.append(f"Only {r['Working']} working days")
+        if not w and r["Result"] == "AT RISK":
+            w.append(f"{r['Invalid Days']} INVALID days, one more fails" if r["Invalid Days"] == int(R["max_invalid_days"]) else "One more missed mandatory day fails")
+        return " · ".join(w) if w else "–"
+    out["Why"] = out.apply(why, axis=1)
+    out["_o"] = out["Result"].map({"INVALID": 0, "AT RISK": 1, "VALID": 2})
+    return out.reset_index().sort_values(["_o", "Over / Under"]).drop(columns="_o").reset_index(drop=True)
+
 
 # ---------------------------------------------------------------- cities
 def city_table(co, cd, day=None):
