@@ -180,7 +180,7 @@ def styled(df, rules=None, first_row=False, text_cols=None):
     return sty
 
 
-BUILD = "31 Oct 2026 · v17"
+BUILD = "31 Oct 2026 · v18 · Validation"
 _DEFER = "callable" in (st.download_button.__doc__ or "")
 _XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
