@@ -29,7 +29,9 @@ def render():
     first = pd.to_datetime(m["dmin"]).min() if not m.empty else today
     last = max(pd.to_datetime(m["dmax"]).max() if not m.empty else today, today)
     months = [p.strftime("%Y-%m") for p in pd.period_range(first, last + pd.offsets.MonthBegin(1), freq="M")][::-1]
-    mkey = d1.selectbox("Month", months, format_func=lambda k: pd.Period(k).strftime("%B %Y"), key="mo_month")
+    cur_key = pd.to_datetime(m["dmax"]).max().strftime("%Y-%m") if not m.empty else today.strftime("%Y-%m")
+    mkey = d1.selectbox("From month", months, index=months.index(cur_key) if cur_key in months else 0,
+                        format_func=lambda k: pd.Period(k).strftime("%B %Y"), key="mo_month")
     ct = pd.DataFrame({"City": cities, "Orders needed / month": [I.month_target(c, mkey) for c in cities]})
     ed = None
     if cities:
@@ -38,6 +40,7 @@ def render():
                                 column_config={"Orders needed / month": st.column_config.NumberColumn(min_value=0, step=10)})
         ex = int(ed["Orders needed / month"].iloc[0]) if len(ed) else 350
         req_d = max(1, int(R["min_days_month"]))
+        st.caption("A target applies from the month you pick and every later month, until you set a different one.")
         st.caption(f"Each courier's target = target ÷ {req_d} × the days he worked. Example: {ex} ÷ {req_d} = {ex / req_d:.1f} per day, "
                    f"so a courier who worked 12 days needs {ex / req_d * 12:.0f} orders.")
     st.markdown("#### Targets (green line) and red line, in %")
