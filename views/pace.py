@@ -58,6 +58,16 @@ def render():
     st.caption(f"Data until {last:%d %b}  ·  {left} days left  ·  monthly target: " + "  ·  ".join(f"{c} {v}" for c, v in tg.items()) +
                f"  ·  courier target = target ÷ {req} × days he worked  (example {c0}: {tg[c0]} ÷ {req} = {tg[c0] / req:.1f} per day, 12 days = {tg[c0] / req * 12:.0f} orders)")
 
+    if ui.is_admin():
+        with st.expander(f"Edit the {mo.strftime('%B %Y')} target of each city (admin)"):
+            cols = st.columns(min(4, max(1, len(tg))))
+            new = {c: cols[i % len(cols)].number_input(c, 0, 5000, int(v), step=10, key=f"pc_t_{mkey}_{c}") for i, (c, v) in enumerate(tg.items())}
+            if st.button("Save targets", key=f"pc_save_{mkey}"):
+                cur = I.RULES.get("month_orders_by_month", {})
+                I.save_rules({"month_orders_by_month": {**cur, mkey: {**cur.get(mkey, {}), **{c: int(v) for c, v in new.items()}}}})
+                st.cache_data.clear()
+                st.rerun()
+
     n = len(g)
     reached = int((g["Orders"] >= g["Target"]).sum())
     behind = int((g["Behind By"] > 0).sum())
@@ -72,7 +82,7 @@ def render():
 
     ui.section("Per city")
     ct = pd.DataFrame([_row("City", "ALL CITIES", g)] + [_row("City", c, x) for c, x in g.groupby("City")])
-    ct.insert(1, "Month Target / Courier", [""] + [tg[c] for c in ct["City"][1:]])
+    ct.insert(1, "Month Target / Courier", [np.nan] + [tg[c] for c in ct["City"][1:]])
     ui.table(ct, f"pace_cities_{base}", "pc_city", first_row=True, height=38 + 35 * (len(ct) + 1))
 
     ui.section("How far behind")
