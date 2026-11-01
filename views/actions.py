@@ -83,6 +83,8 @@ def render():
 
     if not behind.empty:
         ui.section(f"Behind monthly pace, {f['dmax']:%B}")
-        b = behind.assign(Gap=lambda x: x["Needed / Day"] - x["Avg / Working Day"]).sort_values("Gap", ascending=False).head(25)
-        ui.table(b[["Courier ID", "Name", "City", "Supervisor", "Orders", "Target", "Remaining", "Working", "Avg / Working Day", "Needed / Day", "Pace"]]
-                 .rename(columns={"Working": "Working Days"}), "behind_pace", "ac_pace", export=False)
+        b = behind.sort_values("Over / Under").head(25).rename(columns={
+            "Working": "Days Worked", "Orders": "Orders So Far", "Prorated Target": "His Target (days worked)", "Avg / Working Day": "Orders / Day So Far",
+            "Needed / Day": "Orders / Day Needed", "Target": "Month Target (full)"})
+        ui.table(b[["Courier ID", "Name", "City", "Supervisor", "Days Worked", "Orders So Far", "His Target (days worked)", "Over / Under",
+                    "Orders / Day So Far", "Orders / Day Needed", "Month Target (full)"]], "behind_pace", "ac_pace", export=False)
