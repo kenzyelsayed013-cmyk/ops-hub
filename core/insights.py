@@ -260,9 +260,11 @@ def company_stats(co):
 
 def month_target(city, month=None):
     """Monthly orders a courier needs in `city` for `month` ("YYYY-MM"). Month-specific value first, then the city default."""
-    by = RULES.get("month_orders_by_month", {}).get(month or "", {})
-    if city in by:
-        return int(by[city])
+    by = RULES.get("month_orders_by_month", {})
+    if month:
+        ms = sorted(m for m, v in by.items() if m <= month and city in v)     # the latest month set at or before this one
+        if ms:
+            return int(by[ms[-1]][city])
     return int(RULES["month_orders_city"].get(city, RULES["month_orders_default"]))
 
 
