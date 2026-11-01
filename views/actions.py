@@ -47,7 +47,16 @@ def render():
         lastm = dm["date"].max()
         pace = I.month_orders(dm, lastm, max(0, (pd.Timestamp(m2) - lastm).days))
     behind = pace[pace["Pace"].str.startswith("✖ Behind")] if not pace.empty else pace
+    vv = pd.DataFrame()
+    if not dm.empty:
+        vv = I.monthly_verdict(dm, lastm, max(0, (pd.Timestamp(m2) - lastm).days), m1, m2)
     ui.card(c[4], "Behind monthly pace", f"{len(behind):,}", f"of {len(pace):,} couriers · {f['dmax']:%B}", I.grade(len(behind), 0, 0, False), "Target 0")
+
+    if not vv.empty:
+        c = st.columns(6)
+        ui.card(c[0], f"VALID couriers, {f['dmax']:%B}", f"{int((vv['Result'] == 'VALID').sum()):,}", f"of {len(vv):,} couriers", "good")
+        ui.card(c[1], "AT RISK", f"{int((vv['Result'] == 'AT RISK').sum()):,}", "", "warn" if (vv["Result"] == "AT RISK").any() else "good")
+        ui.card(c[2], "INVALID", f"{int((vv['Result'] == 'INVALID').sum()):,}", "this month so far", I.grade(int((vv["Result"] == "INVALID").sum()), 0, 0, False), "Target 0")
 
     if len(f["cities"]) > 1:
         ui.section("Cities")
