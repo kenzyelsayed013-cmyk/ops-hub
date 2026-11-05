@@ -8,7 +8,7 @@ GROUPS = [("bad", "Fix now"), ("warn", "Watch"), ("good", "On target")]
 
 
 def _card(col, label, key, v, fm="{:.2%}"):
-    ui.card(col, label, fm.format(v) if I.is_num(v) else "–", "", I.status(key, v), (I.target_hint(key) + "  ·  " + I.gap_txt(key, v)).strip(" ·"))
+    ui.card(col, label, fm.format(v) if I.is_num(v) else "–", "", I.status(key, v), (I.target_hint(key) + "  ·  " + I.gap_txt(key, v)).strip(" ·"), key=key)
 
 
 def render():
@@ -27,12 +27,14 @@ def render():
     ui.legend()
 
     ui.section("Key numbers")
+    ui.set_who({"ontime_rate": lambda: I.who_ontime(cd), "cancel_rate_di": lambda: I.who_di(cd), "attendance": lambda: I.who_attendance(cd),
+                "valid_rate": lambda: I.who_invalid(cd), "rejects": lambda: I.who_rejects(cd)})
     c = st.columns(6)
     ui.kpi(c[0], "On-time rate", tot.get("ontime_rate"), ptot.get("ontime_rate"), "{:.2%}", "rate", False, key="ontime_rate")
     ui.kpi(c[1], "Delivery Issue % (Keeta)", tot.get("cancel_rate_di"), ptot.get("cancel_rate_di"), "{:.2%}", "rate", True, key="cancel_rate_di")
     _card(c[2], "Attendance (scheduled days)", "attendance", A["att"])
     _card(c[3], "Couriers completing all shifts", "valid_rate", A["valid"])
-    ui.card(c[4], "Rejected by couriers", f"{rejc:,.0f}" if I.is_num(rejc) else "–", "", I.grade(rejc, 0, 0, False), "Target 0")
+    ui.card(c[4], "Rejected by couriers", f"{rejc:,.0f}" if I.is_num(rejc) else "–", "", I.grade(rejc, 0, 0, False), "Target 0", key="rejects")
     ui.kpi(c[5], "Delivered orders", tot.get("delivered"), ptot.get("delivered"), "{:,.0f}", "num", False)
 
     c = st.columns(6)
@@ -63,17 +65,20 @@ def render():
         ui.table(I.city_table(co, cd), "cities_total", "ac_city", export=False, first_row=True, height=38 + 35 * (len(f["cities"]) + 2))
 
     if not cd.empty:
-        last = cd["date"].max()
-        v, bs, bo = I.day_lists3(cd, last)
-        ui.section(f"Latest day {last:%a %d %b}: {len(v)} VALID · {len(bs)} INVALID (shifts) · {len(bo)} INVALID (orders)")
-        if bs.empty and bo.empty:
-            st.success("No INVALID courier.")
-        if not bs.empty:
-            st.markdown("**INVALID because of shifts**")
-            ui.table(bs, "invalid_shifts_latest", "ac_drop_s", height=min(360, 38 + 35 * (len(bs) + 1)), text_cols=["Status"] + list(bs.columns[-6:]))
-        if not bo.empty:
-            st.markdown("**INVALID because of orders**")
-            ui.table(bo, "invalid_orders_latest", "ac_drop_o", height=min(360, 38 + 35 * (len(bo) + 1)), text_cols=["Status"])
+        vd = I.valid_by_day(cd)
+        ibd = I.invalid_by_day(cd)
+        n_inv_days = len(ibd)
+        ui.section(f"INVALID by day, {f['d1']:%d %b} → {f['d2']:%d %b}" if f["d1"] != f["d2"] else f"INVALID on {f['d1']:%a %d %b %Y}")
+        if not vd.empty:
+            tt = pd.DataFrame({"Date": vd["date"].dt.strftime("%Y-%m-%d"), "Day": vd["date"].dt.strftime("%a") + vd["Mand"].map({True: " ★", False: ""}),
+                               "Scheduled": vd["Scheduled"], "VALID": vd["Valid"], "INVALID (shifts)": vd["ShiftFail"], "INVALID (orders)": vd["OrderFail"],
+                               "INVALID (total)": vd["Dropped"]})
+            ui.table(tt, "valid_by_day_ac", "ac_vbd", export=False, height=min(380, 38 + 35 * (len(tt) + 1)))
+        if ibd.empty:
+            st.success("No INVALID courier in these dates.")
+        else:
+            st.markdown(f"**Who was INVALID** ({n_inv_days:,} courier-days)")
+            ui.table(ui.search(ibd, "ac_ibd_q"), "invalid_by_day_ac", "ac_ibd", height=min(520, 38 + 35 * (len(ibd) + 1)), text_cols=["Result"])
         rc = cd.groupby(["courier_id", "name", "city", "supervisor"])[["rejected_courier", "accepted"]].sum().reset_index()
         rc = rc[rc["rejected_courier"] > 0].sort_values("rejected_courier", ascending=False).head(20)
         ui.section("Couriers who rejected orders (target 0)")
