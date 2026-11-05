@@ -47,11 +47,29 @@ def render():
     k = st.columns(6)
     ui.card(k[0], "Accepted orders", f"{acc:,.0f}")
     ui.card(k[1], "Delivered orders", f"{dl:,.0f}")
-    ui.card(k[2], "Cancelled orders", f"{can:,.0f}", "", I.status("cancel_rate", rate))
-    ui.card(k[3], "Cancelled %", f"{rate:.2%}" if pd.notna(rate) else "–", "", I.status("cancel_rate", rate),
-            I.target_hint("cancel_rate") + "  ·  " + I.gap_txt("cancel_rate", rate))
-    ui.card(k[4], "Rejected by couriers", f"{rj:,.0f}", "", I.grade(rj, 0, 0, False), "Target 0")
-    ui.card(k[5], "Delivery Issue %", f"{di_tot:.2f}%" if pd.notna(di_tot) else "–", f"≈ {diest:,.0f} orders (est.)", "neutral", how)
+    ui.card(k[2], "Cancelled orders", f"{can:,.0f}")
+    ui.card(k[3], "Cancelled %", f"{rate:.2%}" if pd.notna(rate) else "–", "of accepted orders")
+    ui.set_who({"cancel_rate_di": lambda: I.who_di(d), "rejects": lambda: I.who_rejects(d)})
+    ui.card(k[4], "Rejected by couriers", f"{rj:,.0f}", "", I.grade(rj, 0, 0, False), "Target 0", key="rejects")
+    dsv = di_tot / 100 if pd.notna(di_tot) else np.nan
+    ui.card(k[5], "Delivery Issue %", f"{di_tot:.2f}%" if pd.notna(di_tot) else "–", f"≈ {diest:,.0f} orders (est.)", I.status("cancel_rate_di", dsv),
+            I.target_hint("cancel_rate_di") + "  ·  " + I.gap_txt("cancel_rate_di", dsv), key="cancel_rate_di")
+
+    if not cdaily.empty:
+        ui.section("Where orders are lost")
+        ui.table(I.funnel(ctot), f"funnel_{base}", "cn_fun", export=False, height=38 + 35 * 6)
+        fd = cdaily.sort_values("date", ascending=False)
+        rows = [I.funnel_row({"Date": r["date"].strftime("%Y-%m-%d"), "Day": r["date"].strftime("%a")}, r) for _, r in fd.iterrows()]
+        top = I.funnel_row({"Date": "PERIOD", "Day": "total"}, ctot)
+        order = ["Date", "Day", "Assigned", "Not accepted", "Accepted", "Lost before restaurant", "Arrived", "Lost before pickup", "Picked",
+                 "Lost before delivery", "Delivered", "Total lost", "Lost %"]
+        ft = pd.DataFrame([top] + rows)[order]
+        ui.table(ft, f"funnel_days_{base}", "cn_fun_d", first_row=True, height=min(520, 38 + 35 * (len(ft) + 1)))
+        if co["city"].nunique() > 1:
+            cr = [I.funnel_row({"City": c}, I.company_stats(co[co["city"] == c])[1]) for c in sorted(co["city"].unique())]
+            cf = pd.DataFrame([I.funnel_row({"City": "ALL CITIES"}, ctot)] + cr)[["City", "Assigned", "Not accepted", "Lost before restaurant", "Lost before pickup",
+                                                                              "Lost before delivery", "Delivered", "Total lost", "Lost %"]]
+            ui.table(cf, f"funnel_cities_{base}", "cn_fun_c", first_row=True, height=38 + 35 * (len(cf) + 1))
 
     if d["city"].nunique() > 1:
         ui.section("By city")
