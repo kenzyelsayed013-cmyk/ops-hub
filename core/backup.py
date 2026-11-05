@@ -20,7 +20,7 @@ import streamlit as st
 
 API = "https://api.github.com"
 ROOT = Path(__file__).resolve().parent.parent
-CONFIG_FILES = ("rules.json", "city_alias.json", "cities.json")
+CONFIG_FILES = ("rules.json", "city_alias.json", "cities.json", "pages.json")
 _http = requests.request          # swapped in tests
 
 
