@@ -18,10 +18,11 @@ def render():
         return
     ui.legend()
     A = I.attendance_stats(d)
+    ui.set_who({"attendance": lambda: I.who_attendance(d), "valid_rate": lambda: I.who_invalid(d)})
     ui.section("Totals")
     k = st.columns(4)
     for col, lab, key, v in [(k[0], "Attendance", "attendance", A["att"]), (k[1], "Couriers completing all shifts", "valid_rate", A["valid"])]:
-        ui.card(col, lab, f"{v:.2%}", "", I.status(key, v), I.target_hint(key) + "  ·  " + I.gap_txt(key, v))
+        ui.card(col, lab, f"{v:.2%}", "", I.status(key, v), I.target_hint(key) + "  ·  " + I.gap_txt(key, v), key=key)
     ui.card(k[2], "Qualified shifts", f"{A['qual']:.2%}", "", I.grade(A["qual"] * 100, 100, 90, True), "Target 100%")
     ui.card(k[3], "Scheduled courier-days", f"{A['n']:,}")
 
@@ -34,6 +35,13 @@ def render():
           "Qualified shifts %": A["qual"] * 100}
     ui.table(pd.concat([pd.DataFrame([tt]), t], ignore_index=True), f"shift_days_{base}", "sh_day", first_row=True,
              height=min(600, 38 + 35 * (len(t) + 2)))
+
+    ibd = I.invalid_by_day(d)
+    ui.section("INVALID couriers on each selected day")
+    if ibd.empty:
+        st.success("No INVALID courier in these dates.")
+    else:
+        ui.table(ui.search(ibd, "sh_ibd_q"), f"invalid_by_day_{base}", "sh_ibd", height=min(520, 38 + 35 * (len(ibd) + 1)), text_cols=["Result"])
 
     ui.section("VALID and INVALID couriers, by day")
     days = list(vd["date"])
