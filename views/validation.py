@@ -6,7 +6,7 @@ from core import ui, insights as I
 
 def _row(key, label, x):
     return {key: label, "Couriers": len(x), "VALID": int((x["Result"] == "VALID").sum()), "AT RISK": int((x["Result"] == "AT RISK").sum()),
-            "INVALID": int((x["Result"] == "INVALID").sum()), "Orders Target Not Reached": int(x["f_orders"].sum()),
+            "INVALID": int((x["Result"] == "INVALID").sum()), "Orders Target Not Reached": int(x["f_orders"].sum()), "Behind Orders Pace (at risk)": int(x["r_orders"].sum()),
             "Too Many INVALID Days": int(x["f_inv"].sum()), "Mandatory Days Missed": int(x["f_mand"].sum()), "Too Few Working Days": int(x["f_days"].sum())}
 
 
@@ -40,9 +40,10 @@ def render():
     ui.card(k[1], "VALID", f"{nv:,}", "", "good" if nv else "neutral")
     ui.card(k[2], "AT RISK", f"{nr:,}", "one more miss and they are INVALID", "warn" if nr else "good")
     ui.card(k[3], "INVALID", f"{ni:,}", "", "bad" if ni else "good", "Target 0")
-    k2 = st.columns(4)
+    k2 = st.columns(5)
     if R.get("rule_orders_target", True):
-        ui.card(k2[0], "INVALID: orders target", f"{int(v['f_orders'].sum()):,}", "below the target of his days worked", I.grade(int(v["f_orders"].sum()), 0, 0, False))
+        ui.card(k2[4], "AT RISK: behind the orders pace", f"{int(v['r_orders'].sum()):,}", "INVALID if still behind when the month closes", "warn" if v["r_orders"].any() else "good")
+        ui.card(k2[0], "INVALID: orders target", f"{int(v['f_orders'].sum()):,}", "month closed, target not reached", I.grade(int(v["f_orders"].sum()), 0, 0, False))
     if R.get("rule_invalid_days", True):
         ui.card(k2[1], f"INVALID: more than {int(R['max_invalid_days'])} INVALID days", f"{int(v['f_inv'].sum()):,}", "shifts or orders", I.grade(int(v["f_inv"].sum()), 0, 0, False))
     if R.get("rule_mandatory", True):
