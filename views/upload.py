@@ -32,14 +32,7 @@ def _clean(v):
     return " ".join(str(v).split())
 
 
-def clean_city(s):
-    """'anan alasimah Company For logistics ( Riyadh )' -> 'Riyadh'. The city is the text inside the last brackets, if any."""
-    s = _clean(s)
-    m = re.findall(r"[\(\[（]\s*([^()\[\]（）]+?)\s*[\)\]）]", s)
-    if m:
-        s = _clean(m[-1])
-    s = _clean(re.sub(r"\bbranch\b", "", s, flags=re.I))
-    return s
+clean_city = ui.clean_city
 
 
 def _bad(s):
