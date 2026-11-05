@@ -48,6 +48,24 @@ header[data-testid="stHeader"] {background:transparent !important;}
 .act .ae {font-size:.95rem; margin-top:5px; color:#1F2937;}
 .act .aa {font-size:.92rem; margin-top:6px; font-weight:700; color:#14181F;}
 .note {background:#F3F4F6; border-left:5px solid #FFC400; padding:8px 14px; border-radius:4px; font-size:.86rem; color:#374151; margin:6px 0 10px;}
+
+[data-testid="stSidebarNav"] ul {padding:4px 6px;}
+[data-testid="stSidebarNavLink"] {border-radius:10px; margin:3px 0; padding:7px 10px; font-weight:600; color:#14181F;}
+[data-testid="stSidebarNavLink"]:hover {background:#FFF1BF;}
+[data-testid="stSidebarNavLink"][aria-current="page"] {background:#FFC400; color:#14181F; font-weight:800;}
+[data-testid="stSidebarNavLink"] [data-testid="stIconMaterial"] {font-size:1.35rem;}
+[data-testid="stSidebarNav"] li:nth-child(1) [data-testid="stIconMaterial"] {color:#DC2626;}
+[data-testid="stSidebarNav"] li:nth-child(2) [data-testid="stIconMaterial"] {color:#16A34A;}
+[data-testid="stSidebarNav"] li:nth-child(3) [data-testid="stIconMaterial"] {color:#D97706;}
+[data-testid="stSidebarNav"] li:nth-child(4) [data-testid="stIconMaterial"] {color:#2563EB;}
+[data-testid="stSidebarNav"] li:nth-child(5) [data-testid="stIconMaterial"] {color:#7C3AED;}
+[data-testid="stSidebarNav"] li:nth-child(6) [data-testid="stIconMaterial"] {color:#0891B2;}
+[data-testid="stSidebarNav"] li:nth-child(7) [data-testid="stIconMaterial"] {color:#DB2777;}
+[data-testid="stSidebarNav"] li:nth-child(8) [data-testid="stIconMaterial"] {color:#0D9488;}
+[data-testid="stSidebarNav"] li:nth-child(9) [data-testid="stIconMaterial"] {color:#CA8A04;}
+[data-testid="stSidebarNav"] li:nth-child(10) [data-testid="stIconMaterial"] {color:#4B5563;}
+[data-testid="stSidebarNav"] li:nth-child(n+11) [data-testid="stIconMaterial"] {color:#6B7280;}
+[data-testid="stPopoverBody"] {min-width: min(900px, 92vw) !important;}
 </style>
 """
 
@@ -56,6 +74,7 @@ header[data-testid="stHeader"] {background:transparent !important;}
 def inject_css():
     st.markdown(CSS, unsafe_allow_html=True)
     st.session_state["_reg"], st.session_state["_kpi"], st.session_state["_sec"] = [], [], ""
+    st.session_state["_who"], st.session_state["_whon"] = {}, []
 
 
 def topbar(title, f, days=None):
@@ -90,11 +109,30 @@ def delta_txt(cur, prev, kind):
     return f"{(cur - prev) / abs(prev) * 100:+.1f}% vs prev"
 
 
-def card(col, label, value, sub="", status="neutral", hint="", subcls=""):
+def set_who(d):
+    """{metric key: function returning the DataFrame of couriers behind that number}. Set by each page."""
+    st.session_state["_who"] = d
+
+
+def card(col, label, value, sub="", status="neutral", hint="", subcls="", key=None):
     st.session_state.setdefault("_kpi", []).append({"Section": st.session_state.get("_sec", ""), "Metric": re.sub("<[^>]+>", "", str(label)), "Value": re.sub("<[^>]+>", "", str(value)), "Change": str(sub), "Target": str(hint)})
     tag = f'<span class="tag {status}">{I.TAGS[status]}</span>' if status in I.TAGS else ""
     col.markdown(f'<div class="kc {status}"><div class="kl"><span>{label}</span>{tag}</div><div class="kv">{value}</div>'
                  f'<div class="kd {subcls}">{sub}</div><div class="kh">{hint}</div></div>', unsafe_allow_html=True)
+    w = st.session_state.get("_who", {}).get(key) if key else None
+    if w is not None and status in ("warn", "bad"):
+        try:
+            df = w()
+        except Exception:
+            df = None
+        if df is not None and len(df):
+            n = len(st.session_state.setdefault("_whon", []))
+            st.session_state["_whon"].append(key)
+            with col.popover(f"👥 Who is affected ({len(df):,})", use_container_width=True):
+                old = st.session_state.get("_sec", "")
+                st.session_state["_sec"] = f"Who is affected: {re.sub('<[^>]+>', '', str(label))}"
+                table(df, f"who_{key}", f"who_{key}_{n}", height=min(420, 38 + 35 * (len(df) + 1)))
+                st.session_state["_sec"] = old
 
 
 def kpi(col, label, cur, prev, fmt="{:,.0f}", kind="num", bad_up=False, key=None):
@@ -108,7 +146,7 @@ def kpi(col, label, cur, prev, fmt="{:,.0f}", kind="num", bad_up=False, key=None
             cls = "up" if good else "down"
         sub = f"{'▲' if diff > 0 else ('▼' if diff < 0 else '=')} {dt}"
     hint = (I.target_hint(key) + "  ·  " + I.gap_txt(key, cur)) if key and I.target_hint(key) else ""
-    card(col, label, val, sub, I.status(key, cur) if key else "neutral", hint, cls)
+    card(col, label, val, sub, I.status(key, cur) if key else "neutral", hint, cls, key=key)
 
 
 # ---------------------------------------------------------------- excel
@@ -180,7 +218,7 @@ def styled(df, rules=None, first_row=False, text_cols=None):
     return sty
 
 
-BUILD = "31 Oct 2026 · v18 · Validation"
+BUILD = "1 Nov 2026 · v19"
 _DEFER = "callable" in (st.download_button.__doc__ or "")
 _XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -272,6 +310,25 @@ from pathlib import Path
 ALIAS_FILE = Path(__file__).resolve().parent.parent / "city_alias.json"
 
 
+PAGES_FILE = Path(__file__).resolve().parent.parent / "pages.json"
+
+
+def hidden_pages():
+    try:
+        return list(json.loads(PAGES_FILE.read_text()).get("hidden", []))
+    except Exception:
+        return []
+
+
+def save_hidden(hidden):
+    PAGES_FILE.write_text(json.dumps({"hidden": sorted(hidden)}, ensure_ascii=False))
+    try:
+        from . import backup
+        backup.push_text("pages.json", PAGES_FILE.read_text())
+    except Exception:
+        pass
+
+
 def alias():
     try:
         a = json.loads(ALIAS_FILE.read_text())
@@ -289,21 +346,38 @@ def save_alias(rename, hidden):
         pass
 
 
+def clean_city(s):
+    """'anan alasimah Company For logistics ( Riyadh )' -> 'Riyadh' (the text inside the last brackets)."""
+    s = " ".join(str(s).split())
+    m = re.findall(r"[\(\[（]\s*([^()\[\]（）]+?)\s*[\)\]）]", s)
+    if m:
+        s = " ".join(m[-1].split())
+    return " ".join(re.sub(r"\bbranch\b", "", s, flags=re.I).split())
+
+
 def meta():
-    """db.meta() with city renames and hidden cities applied. `real` keeps the stored name."""
+    """db.meta() with long branch names cleaned to the city, duplicates hidden, renames and hidden cities applied. `real` keeps the stored name."""
     m = db.meta()
     if m.empty:
         return m
     A = alias()
     m = m[~m["city"].isin(A["hidden"])].copy()
+    keep, disp = [], []
+    for r in m.itertuples():
+        cc = clean_city(r.city) or r.city
+        if cc != r.city:                      # 'anan alasimah Company For logistics ( Riyadh )': a long branch name, hidden for good
+            continue
+        keep.append(r.Index)
+        disp.append(cc)
+    m = m.loc[keep].copy()
     m["real"] = m["city"]
-    m["city"] = m["city"].map(lambda c: A["rename"].get(c) or c)
+    m["city"] = [A["rename"].get(c) or d for c, d in zip(m["real"], disp)]
     return m
 
 
 def disp_names(names):
     A = alias()
-    return sorted({A["rename"].get(c) or c for c in names if c not in A["hidden"]})
+    return sorted({A["rename"].get(c) or c for c in names if c not in A["hidden"] and (clean_city(c) or c) == c})
 
 
 def real_city(platform, display):
@@ -312,7 +386,7 @@ def real_city(platform, display):
     return r[0] if len(r) else display
 
 
-PRESETS = {"7 days": 7, "14 days": 14, "30 days": 30, "All": None, "Custom": 0}
+PRESETS = ["Yesterday", "Month to date", "Last month", "All", "Custom"]
 
 
 def _dates(v):
@@ -348,6 +422,20 @@ def _seg(label, opts, default, key):
     return st.radio(label, opts, index=opts.index(default), horizontal=True, key=key)
 
 
+def _range(preset, dmin, dmax):
+    """Fixed calendar periods, always inside the data. They do not move when cities are toggled."""
+    today = pd.Timestamp.now(tz="Asia/Riyadh").date()
+    if preset == "Yesterday":
+        d2 = min(dmax, today - timedelta(days=1))
+        return max(dmin, d2), max(dmin, d2)
+    if preset == "Month to date":
+        return max(dmin, dmax.replace(day=1)), dmax
+    if preset == "Last month":
+        ld = dmax.replace(day=1) - timedelta(days=1)
+        return ld.replace(day=1), ld
+    return dmin, dmax
+
+
 def render_filters():
     """Filters live in the sidebar. Cities and period are buttons, not dropdowns."""
     m = meta()
@@ -362,16 +450,15 @@ def render_filters():
         sel = _multi("Cities", allc, f"f_cities_{platform}_{hashlib.md5('|'.join(allc).encode()).hexdigest()[:8]}") or allc
         rows = mm[mm["city"].isin(sel)]
         dmin, dmax = pd.to_datetime(rows["dmin"]).min().date(), pd.to_datetime(rows["dmax"]).max().date()
+        amin, amax = pd.to_datetime(mm["dmin"]).min().date(), pd.to_datetime(mm["dmax"]).max().date()
         label = "All cities" if len(sel) == len(allc) and len(sel) > 1 else ", ".join(sel)
-        preset = _seg("Period", list(PRESETS), "7 days", "f_preset")
+        preset = _seg("Period", PRESETS, "Month to date", "f_period")
         if preset == "Custom":
-            d1, d2 = _dates(st.date_input("From → to", value=(dmin, dmax), min_value=dmin, max_value=dmax,
-                                          key=f"f_dates_{platform}_{label}"))
+            d1, d2 = _dates(st.date_input("From → to", value=(max(amin, amax.replace(day=1)), amax), min_value=amin, max_value=amax,
+                                          key=f"f_dates_{platform}"))
         else:
-            n = PRESETS[preset]
-            d2 = dmax
-            d1 = dmin if n is None else max(dmin, d2 - timedelta(days=n - 1))
-        st.caption(f"{d1:%d %b} → {d2:%d %b %Y}  ·  latest data {dmax:%d %b}")
+            d1, d2 = _range(preset, amin, amax)
+        st.caption(f"{d1:%d %b} → {d2:%d %b %Y}  ·  latest data {amax:%d %b}")
         cities = tuple(sel)
         full = _load("courier", platform, cities, d1, d2)
         f = dict(platform=platform, city=label, cities=cities, d1=d1, d2=d2, sup=(), ctype=(), veh=(), dmin=dmin, dmax=dmax)
