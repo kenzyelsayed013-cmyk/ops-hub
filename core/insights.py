@@ -421,6 +421,97 @@ def monthly_verdict(d, last, left, m1, m2):
     return out.reset_index().sort_values(["_o", "Over / Under"]).drop(columns="_o").reset_index(drop=True)
 
 
+# ---------------------------------------------------------------- who is behind a number
+def _who_base(cd, cols):
+    return cd.groupby("courier_id").agg(**cols).reset_index().rename(columns={"courier_id": "Courier ID"})
+
+
+def who_ontime(cd):
+    """Couriers with late orders in the selected period, most late orders first."""
+    if cd is None or cd.empty:
+        return pd.DataFrame()
+    x = cd.assign(late=(cd["delivered"] - cd["w_ontime"]).clip(lower=0))
+    g = _who_base(x, dict(Name=("name", "last"), City=("city", "last"), Supervisor=("supervisor", "last"), Delivered=("delivered", "sum"),
+                          Late=("late", "sum"), OnTime=("w_ontime", "sum"), Overdue=("overdue", "sum"), Severe=("severe_overdue", "sum"),
+                          Days=("late", lambda s: int((s >= 0.5).sum()))))
+    g = g[g["Late"] >= 0.5].copy()
+    if g.empty:
+        return g
+    g["Late Orders"] = g["Late"].round().astype(int)
+    g["On-time %"] = g["OnTime"] / g["Delivered"].replace(0, np.nan) * 100
+    g["Share of All Late Orders %"] = g["Late"] / g["Late"].sum() * 100
+    g = g.rename(columns={"Delivered": "Orders Delivered", "Days": "Days With Late Orders", "Overdue": "Overdue", "Severe": "Severely Overdue"})
+    return g[["Courier ID", "Name", "City", "Supervisor", "Orders Delivered", "Late Orders", "On-time %", "Days With Late Orders", "Overdue",
+              "Severely Overdue", "Share of All Late Orders %"]].sort_values("Late Orders", ascending=False).reset_index(drop=True)
+
+
+def who_di(cd):
+    """Couriers with Delivery Issue cancels in the selected period."""
+    if cd is None or cd.empty:
+        return pd.DataFrame()
+    rows = []
+    for cid, g in cd.groupby("courier_id"):
+        est, rate = g["di_cancels"].sum(), di_avg(g, "cancel_rate_di", "accepted")
+        if est > 0 or (pd.notna(rate) and rate > 0):
+            rows.append({"Courier ID": cid, "Name": g["name"].iloc[-1], "City": g["city"].iloc[-1], "Supervisor": g["supervisor"].iloc[-1],
+                         "Orders Accepted": g["accepted"].sum(), "Delivery-Issue (est.)": est, "Delivery Issue %": rate * 100,
+                         "Days With Delivery Issue": int((pd.to_numeric(g["cancel_rate_di"], errors="coerce") > 0).sum())})
+    return pd.DataFrame(rows).sort_values("Delivery-Issue (est.)", ascending=False).reset_index(drop=True) if rows else pd.DataFrame()
+
+
+def who_attendance(cd):
+    s = sched_days(cd)
+    if s.empty or s["attended"].all():
+        return pd.DataFrame()
+    n = s.groupby("courier_id").size()
+    b = s[~s["attended"]]
+    g = b.groupby("courier_id").agg(Name=("name", "last"), City=("city", "last"), Supervisor=("supervisor", "last"), Absent=("date", "size"),
+                                    Last=("date", "max")).reset_index().rename(columns={"courier_id": "Courier ID"})
+    g["Scheduled Days"] = g["Courier ID"].map(n)
+    g["Last Absent Day"] = g["Last"].dt.strftime("%Y-%m-%d")
+    return g.rename(columns={"Absent": "Absent Days"})[["Courier ID", "Name", "City", "Supervisor", "Scheduled Days", "Absent Days", "Last Absent Day"]].sort_values(
+        "Absent Days", ascending=False).reset_index(drop=True)
+
+
+def who_invalid(cd):
+    s = sched_days(cd)
+    if s.empty or s["valid"].all():
+        return pd.DataFrame()
+    n = s.groupby("courier_id").size()
+    b = s[~s["valid"]]
+    g = b.groupby("courier_id").agg(Name=("name", "last"), City=("city", "last"), Supervisor=("supervisor", "last"), Inv=("date", "size"),
+                                    S=("shifts_ok", lambda x: int((~x).sum())), O=("orders_ok", lambda x: int((~x).sum())), Last=("date", "max")).reset_index().rename(
+        columns={"courier_id": "Courier ID"})
+    g["Scheduled Days"] = g["Courier ID"].map(n)
+    g["Last INVALID Day"] = g["Last"].dt.strftime("%Y-%m-%d")
+    return g.rename(columns={"Inv": "INVALID Days", "S": "Invalid Days (shifts)", "O": "Invalid Days (orders)"})[[
+        "Courier ID", "Name", "City", "Supervisor", "Scheduled Days", "INVALID Days", "Invalid Days (shifts)", "Invalid Days (orders)", "Last INVALID Day"]].sort_values(
+        "INVALID Days", ascending=False).reset_index(drop=True)
+
+
+def who_rejects(cd):
+    if cd is None or cd.empty or not (cd["rejected_courier"] > 0).any():
+        return pd.DataFrame()
+    g = cd[cd["rejected_courier"] > 0].groupby("courier_id").agg(Name=("name", "last"), City=("city", "last"), Supervisor=("supervisor", "last"),
+                                                                  Rej=("rejected_courier", "sum"), Days=("date", "nunique")).reset_index().rename(columns={"courier_id": "Courier ID"})
+    return g.rename(columns={"Rej": "Rejected (Courier)", "Days": "Days With Rejects"}).sort_values("Rejected (Courier)", ascending=False).reset_index(drop=True)
+
+
+def invalid_by_day(cd):
+    """Every INVALID courier on every day of the selected dates, one row each, newest day first."""
+    s = sched_days(cd)
+    if s.empty or s["valid"].all():
+        return pd.DataFrame()
+    b = s[~s["valid"]].copy()
+    res = np.select([~b["shifts_ok"] & ~b["orders_ok"], ~b["shifts_ok"]], ["INVALID (shifts + orders)", "INVALID (shifts)"], "INVALID (orders)")
+    out = pd.DataFrame({"Date": b["date"].dt.strftime("%Y-%m-%d").values, "Day": (b["date"].dt.strftime("%a") + np.where(b["mandatory"], " ★", "")).values,
+                        "Courier ID": b["courier_id"].values, "Name": b["name"].values, "City": b["city"].values, "Supervisor": b["supervisor"].values,
+                        "Result": res, "Orders": b["delivered"].values, "Min Orders": b["min_orders"].values,
+                        "Shifts Completed": (b["shifts_qualified"].astype(int).astype(str) + " of " + b["shifts_scheduled"].astype(int).astype(str)).values,
+                        "Online Hrs": b["valid_hrs"].values, "Why": b["reason"].values})
+    return out.sort_values(["Date", "Result", "City", "Name"], ascending=[False, True, True, True]).reset_index(drop=True)
+
+
 # ---------------------------------------------------------------- cities
 def city_table(co, cd, day=None):
     if day is not None:
