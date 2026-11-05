@@ -64,6 +64,7 @@ def render():
     _, ptot = I.company_stats(ui.get_company_prev())
     ui.legend()
 
+    ui.set_who({"ontime_rate": lambda: I.who_ontime(ui.get_couriers()), "cancel_rate_di": lambda: I.who_di(ui.get_couriers())})
     ui.section("Headline numbers", "arrow = change vs the previous period of the same length, green = better, red = worse")
     for row in CARDS:
         cols = st.columns(6)
