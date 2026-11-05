@@ -357,7 +357,7 @@ def validation_text():
     R = RULES
     parts = []
     if R.get("rule_orders_target", True):
-        parts.append(f"reached his orders target (his city's monthly target ÷ {int(R['min_days_month'])} × the days he worked)")
+        parts.append(f"reached his orders target (his city's monthly target ÷ {int(R['min_days_month'])} × the days he worked; behind that pace = AT RISK until the month closes, then INVALID)")
     if R.get("rule_invalid_days", True):
         parts.append(f"has no more than {int(R['max_invalid_days'])} INVALID days in the month (shifts or orders)")
     if R.get("rule_mandatory", True):
@@ -393,15 +393,17 @@ def monthly_verdict(d, last, left, m1, m2):
     allowed = max(0, int(R["mand_total"]) - int(R["mand_required"]))
     off = pd.Series(False, index=out.index)
     month_over = left <= 0
-    f_orders = (out["Orders"] < out["Prorated Target"]) if R.get("rule_orders_target", True) else off
+    behind = (out["Orders"] < out["Prorated Target"]) & (out["Orders"] < out["Target"])
+    f_orders = behind if (R.get("rule_orders_target", True) and month_over) else off          # INVALID only when the month is closed
+    r_orders = behind if (R.get("rule_orders_target", True) and not month_over) else off      # until then: AT RISK
     f_inv = (out["Invalid Days"] > int(R["max_invalid_days"])) if R.get("rule_invalid_days", True) else off
     r_inv = ((out["Invalid Days"] == int(R["max_invalid_days"])) & (not month_over)) if R.get("rule_invalid_days", True) else off
     f_mand = ((out["Mandatory Missed"] > allowed) if mand and R.get("rule_mandatory", True) else off)
     r_mand = (((out["Mandatory Missed"] == allowed) & (len(mand) > len(passed))) if mand and R.get("rule_mandatory", True) else off)
     mind = int(R["min_days_month"])
     f_days = ((out["Working"] < mind) & ((left <= 0) | (out["Working"] + left < mind))) if R.get("rule_min_days", False) else off
-    out["f_orders"], out["f_inv"], out["f_mand"], out["f_days"] = f_orders, f_inv, f_mand, f_days
-    out["Result"] = np.select([f_orders | f_inv | f_mand | f_days, r_inv | r_mand], ["INVALID", "AT RISK"], "VALID")
+    out["f_orders"], out["f_inv"], out["f_mand"], out["f_days"], out["r_orders"] = f_orders, f_inv, f_mand, f_days, r_orders
+    out["Result"] = np.select([f_orders | f_inv | f_mand | f_days, r_inv | r_mand | r_orders], ["INVALID", "AT RISK"], "VALID")
 
     def why(r):
         w = []
@@ -414,7 +416,12 @@ def monthly_verdict(d, last, left, m1, m2):
         if r["f_days"]:
             w.append(f"Only {r['Working']} working days")
         if not w and r["Result"] == "AT RISK":
-            w.append(f"{r['Invalid Days']} INVALID days, one more fails" if r["Invalid Days"] == int(R["max_invalid_days"]) else "One more missed mandatory day fails")
+            if r["r_orders"]:
+                w.append(f"Behind the orders pace: {r['Orders']:.0f} of {r['Prorated Target']:.0f}")
+            if R.get("rule_invalid_days", True) and r["Invalid Days"] == int(R["max_invalid_days"]):
+                w.append(f"{r['Invalid Days']} INVALID days, one more fails")
+            if r["Mandatory Missed"] == allowed and mand and R.get("rule_mandatory", True):
+                w.append("One more missed mandatory day fails")
         return " · ".join(w) if w else "–"
     out["Why"] = out.apply(why, axis=1)
     out["_o"] = out["Result"].map({"INVALID": 0, "AT RISK": 1, "VALID": 2})
