@@ -75,15 +75,19 @@ for mod, title, icon, url in _SPECS:
 st.session_state["_all_pages"] = [(u, t, i) for _, t, i, u, _ in SPECS]
 hidden = [] if admin else ui.hidden_pages()
 SPECS = [s for s in SPECS if s[3] not in hidden] or SPECS[:1]
-if SPECS:
-    SPECS[0][4] = True
+up = _mod("upload") if admin else None
+upload_first = up is not None and not filters          # admin and no data yet: the Upload page opens first
+if SPECS and not upload_first:
+    SPECS[0][4] = True                                 # exactly ONE default page, always
 pages = [st.Page(fn if filters else _nodata, title=t, icon=i, url_path=u, default=d) for fn, t, i, u, d in SPECS]
 if admin:
     for mod, title, icon, url in [("rules", "Rules (admin)", ":material/tune:", "rules"), ("pagesadmin", "Pages (admin)", ":material/visibility:", "pagesadmin"),
-                                  ("citymgr", "Cities (admin)", ":material/edit_location:", "citymgr"), ("upload", "Upload (admin)", ":material/upload:", "upload")]:
+                                  ("citymgr", "Cities (admin)", ":material/edit_location:", "citymgr")]:
         m = _mod(mod)
         if m is not None:
-            pages.append(st.Page(m.render, title=title, icon=icon, url_path=url, default=(mod == "upload" and not filters)))
+            pages.append(st.Page(m.render, title=title, icon=icon, url_path=url))
+    if up is not None:
+        pages.append(st.Page(up.render, title="Upload (admin)", icon=":material/upload:", url_path="upload", default=upload_first))
     if MISSING:
         st.sidebar.error("Missing or broken files: " + ", ".join(MISSING))
 if not pages:
